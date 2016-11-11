@@ -1,2 +1,0 @@
-/bin/cp $1.ml g0.ml
-make

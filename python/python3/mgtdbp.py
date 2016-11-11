@@ -3,6 +3,13 @@ file: mgtdbp-dev.py
       minimalist grammar top-down beam parser, development version, port for
       python 3.1.
 
+   (JP: This is the base mgtdbp-dev from EA and ES with modifications for output. Instead of 
+   printing, this will create a result-dict that has the various string outputs for given sentence
+   so that these can be easily compared with output from other versions.
+
+    This is part of effort to make a functionally equivalent but easier to read version of mgtdbp as a Kataja plugin. 
+   )
+
    This is a working, development version, with print routines and examples.
 
    Using the included packages derived of NLTK (which officially is supported only
@@ -63,6 +70,7 @@ from nltktreeport import (TreeView, Tree, CanvasWidget, TextWidget,
 import heapq_mod    #added EA
 import heapq
 import time
+import io
 
 """
    We represent trees with lists, where the first element is the root,
@@ -70,27 +78,27 @@ import time
 
    First, a pretty printer for these list trees:
 """
-def pptreeN(n,t): # pretty print t indented n spaces
+def pptreeN(out, n, t): # pretty print t indented n spaces
     if isinstance(t,list) and len(t)>0:
-        sys.stdout.write('\n'+' '*n+'[')
-        print(t[0]), # print root and return
+        out.write('\n'+' '*n+'[')
+        out.write(str(t[0])), # print root and return
         if len(t[1:])>0:
-            sys.stdout.write(',') # comma if more coming
+            out.write(',') # comma if more coming
         for i,subtree in enumerate(t[1:]):  # then print subtrees indented by 4
-            pptreeN(n+4,subtree)
+            pptreeN(out, n+4,subtree)
             if i<len(t[1:])-1:
-                sys.stdout.write(',') # comma if more coming
-        sys.stdout.write(']')
+                out.write(',') # comma if more coming
+        out.write(']')
     else:
-        sys.stdout.write('\n'+' '*n)
-        print(t)
+        out.write('\n'+' '*n)
+        out.write(str(t))
 
-def pptree(t):
+def pptree(out, t):
     if len(t)==0: # catch special case of empty tree, lacking even a root
-        sys.stdout.write('\n[]\n')
+        out.write('\n[]\n')
     else:
-        pptreeN(0,t)
-        sys.stdout.write('\n')
+        pptreeN(out, 0,t)
+        out.write('\n')
 """
 example: 
 pptree([1, 2, [3, 4], [5, 6]])
@@ -217,9 +225,9 @@ def btfyLexItem(s,fs):  #changed -EA
     result = ' '.join(s) + '::' + ' '.join(fstrings)
     return result
 
-def showGrammar(g):
+def showGrammar(out, g):
     for item in g:
-        print(btfyLexItem(item[0],item[1])) #changed EA "item -> item[0],item[1]"
+        out.write(str(btfyLexItem(item[0],item[1]))) #changed EA "item -> item[0],item[1]"
 """
 example: showGrammar(mg0)
 """
@@ -1056,7 +1064,7 @@ parse(mgxx,'T',0.001,inpt0)
 def go():
     go1(mg0,'C',0.0001)
 '''
-def go1(lex,start,minP): # initialize and begin
+def go1(lex,start,minP, sentence='wine'): # initialize and begin
     sA = stringValsOfG(lex)
     (lA,tA) = gIntoLexArrayTypeArray(sA,lex)
     gA = (sA,lA,tA)
@@ -1071,8 +1079,65 @@ def go1(lex,start,minP): # initialize and begin
     ic = ((h,m),([],mx),dt) # dt = dtuple for derivation tree
     iq = [([],ic)]
     heapq_mod.heapify(iq)   #modifed EA
-    goLoop(lex,(sA,lA,tA),iq,minP)
+    #goLoop(lex,(sA,lA,tA),iq,minP)
+    return auto_runner(sentence, lex, (sA, lA, tA), iq, minP)
 
+def auto_runner(sentence, g, gA, iq, minP):
+    new_iq = iq[:]
+    inpt = sentence.split()
+    print('inpt =' + str(inpt))  #changed EA
+    dq = [(-1.0,inpt,new_iq,[[]])]
+    heapq_mod.heapify(dq)   #changed EA
+    t0 = time.time()
+    (dns, remaining_dq) = derive(gA,minP,dq)  #now returns dq 
+    t1 = time.time()
+    idtree = dNodes2idtree(dns)
+    dt = idtree2dtree(gA[0],idtree)
+    results = {}
+
+    print(str(t1 - t0) + "seconds") #changed EA
+    # d
+    results['d'] = list2nltktree(dt2t(dt))
+    # pd
+    output = io.StringIO()
+    pptree(output, dt2t(dt))
+    results['pd'] = output.getvalue()
+    output.close()
+    # s
+    results['s'] = list2nltktree(st2t(dt2st(dt)))
+    # ps
+    output = io.StringIO()
+    pptree(output, st2t(dt2st(dt)))
+    results['ps'] = output.getvalue()
+    output.close()
+    # b
+    results['b'] = list2nltktree(bt2t(dt2bt(dt)))
+    # pb
+    output = io.StringIO()
+    pptree(output, bt2t(dt2bt(dt)))
+    results['pb'] = output.getvalue()
+    output.close()
+    # x
+    results['x'] = list2nltktree(dt2xb(dt))
+    # px
+    output = io.StringIO()
+    pptree(output, dt2xb(dt))
+    results['px'] = output.getvalue()
+    output.close()
+    # pg
+    output = io.StringIO()
+    showGrammar(output, g)
+    results['pg'] = output.getvalue()
+    output.close()
+    # l
+    results['l'] = list2nltktree(['.']+lexArrays2stringTrees(gA[0],gA[1],gA[2]))
+    # pl
+    output = io.StringIO()
+    pptree(output, ['.']+lexArrays2stringTrees(gA[0],gA[1],gA[2]))   #changed EA
+    results['pl'] = output.getvalue()
+    output.close()
+
+    return results
 '''fixed issue with the goLoop, if the command 'n' is used, recursively being called
 and thus requiring each goLoop to be quit when the user wishes to end the program
 (so if 'n' is used 3 times, the user must press 'q' or return 3 times to quit
@@ -1451,28 +1516,38 @@ http://docs.python.org/library/functions.html#__import__
 #the following block can be commented out so that this file can be run from idle
 # if from the terminal, uncomment it and follow directions in other comments below
 
-if len(sys.argv)!=4:
-    print('\nFound ' + str(len(sys.argv)-1) + ' parameters but')
-    print('3 parameters are required:')
-    print('    mgtdbp-dev.py grammar startCategory minimumProbability\n')
-    print('For example:')
-    print('    python3 mgtdbp-dev.py mg0 C 0.0001')
-    print('or:')
-    print('    python3 mgtdbp-dev.py mgxx T 0.0000001\n')
-    print('For line editing, you could use:')
-    print('    rlwrap python3 mgtdbp-dev.py mg0 C 0.0001')
-    print('or, if you have ipython:')
-    print('    ipython3 mgtdbp-dev.py mg0 C 0.0001\n')
-    sys.exit()
+# if len(sys.argv)!=4:
+#     print('\nFound ' + str(len(sys.argv)-1) + ' parameters but')
+#     print('3 parameters are required:')
+#     print('    mgtdbp-dev.py grammar startCategory minimumProbability\n')
+#     print('For example:')
+#     print('    python3 mgtdbp-dev.py mg0 C 0.0001')
+#     print('or:')
+#     print('    python3 mgtdbp-dev.py mgxx T 0.0000001\n')
+#     print('For line editing, you could use:')
+#     print('    rlwrap python3 mgtdbp-dev.py mg0 C 0.0001')
+#     print('or, if you have ipython:')
+#     print('    ipython3 mgtdbp-dev.py mg0 C 0.0001\n')
+#     sys.exit()
 
 # from the grammar specified in sys.argv[1], the first commented line is the terminal usable version
-grammar = __import__(sys.argv[1], globals(), locals(), ['*'])
+#grammar = __import__(sys.argv[1], globals(), locals(), ['*'])
 #grammar=__import__('mgxx', globals(), locals(), ['*'])
+
 
 # with mgxx, p=0.000000001 is small enough for: a b b b b a b b b b
 # with mg0, p=0.0001 is small enough for:
 # which king says which queen knows which king says which wine the queen prefers
 
 #the first commented line is the original line for running from the terminal
-go1(grammar.g,sys.argv[2],-1 * float(sys.argv[3])) 
+#go1(grammar.g,sys.argv[2],-1 * float(sys.argv[3])) 
 #go1(grammar.g,'T',-0.000000001)
+
+if __name__ == '__main__':
+    import mg0 as grammar
+    results = go1(grammar.g, 'C', -0.0001, sentence="the king prefers the beer")
+    for key in sorted(list(results.keys())):
+        print(key)
+        print(results[key])
+
+
