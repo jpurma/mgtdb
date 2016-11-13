@@ -67,6 +67,7 @@ import heapq_mod    #added EA
 import heapq
 import time
 import io
+import pprint
 
 """
    We represent trees with lists, where the first element is the root,
@@ -194,10 +195,180 @@ mgxx= [ ([],[('cat', 'T'),('neg','r'),('neg','l')]),
         ] 
 
 """
+ftype_map = {'cat':'', 'sel':'=', 'neg': '-', 'pos': '+'}
+
+class Feature:
+
+    def __init__(self, ftype, value):
+        self.ftype = ftype
+        self.value = f
+        self.int_ftype = 0
+        self.int_value = 0
+
+    def __str__(self):
+        return ftype_map[self.ftype] + self.value
+
+    def __eq__(self, other):
+        return self.int_ftype == other.int_ftype and self.int_value == other.int_value
+
+# it remains to be seen if there should be both LexItems and LexTreeNodes or if LexTreeNodes are all we need.  
+
+class LexItem:
+
+    def __init__(self, word, features):
+        self.word = word
+        self.features = features
+        self.rev_features = reversed(features)
+
+    def __str__(self):
+        return ' '.join(word) + '::' + ' '.join([str(f) for f in self.features])
+
+class LexTreeNode:
+    def __init__(self, key):
+        self.key = key # these are Features 
+        self.children = []
+        self.roots = []
+
+    def __repr__(self):
+        return str([self.key] + self.children + self.roots)
+
+
+class Grammar:
+    ftypes = ['cat', 'sel', 'neg', 'pos']
+
+    def __init__(self, lex_tuples, start, min_p, sentence):
+        self.d = {}
+        self.min_p = min_p
+        self.feature_values = [] # sA
+        self.lex_array = []
+        self.type_array = []
+        # Read LIs and features from grammar. 
+        # Also prepare integer representations of features and give each LexItem a reversed 
+        # feature list
+        for words, feature_tuples in lex_tuples:
+            for word in words:
+                features = []
+                for ftype, value in feature_tuples:
+                    if value not in self.feature_values:
+                        self.feature_values.append(value)
+                    feat = Feature(ftype, value)
+                    feat.int_ftype = ftypes.index(ftype)
+                    feat.int_value = self.feature_values.index(value)
+                    features.append(feat)
+                self.d[word] = LexItem(word, features)
+        self.build_lex_trees()
+        self.start_int = self.feature_values.index(start)
+        tree_size = len(self.feature_values)
+        h = self.lex_array[self.start_int]
+        m = [[]] * tree_size
+        mx = [[]] * tree_size
+        ifs = [(0,startInt)]    # for derivation tree
+        dx = []                 # for derivation tree
+        mifs = [[]] * tree_size     # for derivation tree
+        dt = (ifs,dx,mifs)      # for derivation tree
+        ic = ((h,m),([],mx),dt) # dt = dtuple for derivation tree
+        iq = [([],ic)]
+        heapq_mod.heapify(iq)   #modifed EA
+        #goLoop(lex,(sA,lA,tA),iq,minP)
+        return self.auto_runner(sentence, iq)
+
+    def auto_runner(self, sentence, iq):
+        #gA = (sA, lA, tA) = self.feature_values, self.lex_array, self.type_array
+        new_iq = iq[:]
+        inpt = sentence.split()
+        print('inpt =' + str(inpt))  #changed EA
+        dq = [(-1.0,inpt,new_iq,[[]])]
+        heapq_mod.heapify(dq)   #changed EA
+        t0 = time.time()
+        (dns, remaining_dq) = derive(dq)  #now returns dq 
+        #(dns, remaining_dq) = derive(gA,minP,dq)  #now returns dq 
+        t1 = time.time()
+        idtree = dNodes2idtree(dns)
+        dt = idtree2dtree(self.feature_values, idtree)
+        results = {}
+
+        print(str(t1 - t0) + "seconds") #changed EA
+        # d
+        results['d'] = list2nltktree(dt2t(dt))
+        # pd
+        output = io.StringIO()
+        pptree(output, dt2t(dt))
+        results['pd'] = output.getvalue()
+        output.close()
+        # s
+        results['s'] = list2nltktree(st2t(dt2st(dt)))
+        # ps
+        output = io.StringIO()
+        pptree(output, st2t(dt2st(dt)))
+        results['ps'] = output.getvalue()
+        output.close()
+        # b
+        results['b'] = list2nltktree(bt2t(dt2bt(dt)))
+        # pb
+        output = io.StringIO()
+        pptree(output, bt2t(dt2bt(dt)))
+        results['pb'] = output.getvalue()
+        output.close()
+        # x
+        results['x'] = list2nltktree(dt2xb(dt))
+        # px
+        output = io.StringIO()
+        pptree(output, dt2xb(dt))
+        results['px'] = output.getvalue()
+        output.close()
+        # pg
+        output = io.StringIO()
+        self.show(output)
+        results['pg'] = output.getvalue()
+        output.close()
+        # l
+        results['l'] = list2nltktree(['.']+lexArrays2stringTrees(self.feature_values, self.lex_array, self.type_array))
+        # pl
+        output = io.StringIO()
+        pptree(output, ['.']+lexArrays2stringTrees(self.feature_values, self.lex_array, self.type_array))   #changed EA
+        results['pl'] = output.getvalue()
+        output.close()
+
+        return results
+
+    def show(self, out):
+        for item in self.d.values():
+            out.write(str(item))
+
+    def __str__(self):
+        return str(self.d)
+
+
+    def build_lex_trees(self, ss, fs):
+        base = LexTreeNode(None)
+        for lexitem in self.d.values():
+            node = base
+            for f in lexitem.rev_features:
+                found = False
+                for child in node.children:
+                    if child.key == f:
+                        found = True
+                        node = child
+                        break                        
+                if not found:
+                    new_node = LexTreeNode(f)
+                    node.children.append(new_node)
+                    node = new_node
+            node.roots.append([lexitem.word]) # <-- make sure that .word is str, not list already
+        self.lex_array = [[]] * len(self.feature_values)
+        self.type_array = [0] * len(self.feature_values)
+        for node in base.children:
+            index = node.key.int_fvalue
+            self.lex_array[index] = node
+            self.type_array[index] = node.key.int_ftype
+
+
+
 """
 It will be good practice to print out those grammars in slightly
 more readable forms, using the following functions:
 """
+# done
 def btfyFtype(t):
     if t=='cat':
         return ''
@@ -210,10 +381,12 @@ def btfyFtype(t):
     else:
         raise RuntimeError('btfyFtype('+str(t)+')')
 
+# done
 def btfyFeat(ftype, f):  #changed -EA
     result = btfyFtype(ftype) + f
     return result
 
+# done
 def btfyLexItem(s,fs):  #changed -EA
     fstrings = []
     for f in fs:
@@ -221,13 +394,14 @@ def btfyLexItem(s,fs):  #changed -EA
     result = ' '.join(s) + '::' + ' '.join(fstrings)
     return result
 
+# done
 def showGrammar(out, g):
     for item in g:
         out.write(str(btfyLexItem(item[0],item[1]))) #changed EA "item -> item[0],item[1]"
 """
 example: showGrammar(mg0)
 """
-
+# done
 def ensureMember(e,l):
     if e in l:
         return l
@@ -238,6 +412,7 @@ example: ensureMember(2,[1,3])
 example: ensureMember(2,[1,2])
 """
 
+# done -- Grammar.feature_values
 def stringValsOfG(g): # the string values of the features
     sofar = []
     for (ss,fs) in g:
@@ -249,6 +424,7 @@ def stringValsOfG(g): # the string values of the features
 sA0 = stringValsOfG(mg0)  
 sA2 = stringValsOfG(mg2)  
 """
+# done
 def listNth(e,l): # return (first) position of e in l
     if e in l:
         return l.index(e)
@@ -256,6 +432,7 @@ def listNth(e,l): # return (first) position of e in l
         raise ValueError("Start category not present in current grammar")
 
 #changed EA
+# done
 def intsOfF(sA, ftype, fval): # convert string representation of feature to integer pair 
     if ftype=='cat':
         return (0,listNth(fval,sA))
@@ -271,6 +448,7 @@ def intsOfF(sA, ftype, fval): # convert string representation of feature to inte
 intsOfF(sA0,('sel','N'))
 """
 #changed EA
+# done
 def fOfInts(sA,itype,ival): # convert integer representation back to string pair  
     if itype==0:
         return ('cat',sA[ival])
@@ -291,6 +469,7 @@ btfyFeat(fOfInts(sA0,(1,1)))
 To make building the tree straightforward,
   we reverse features lists and convert them to integers first
 """
+# done (ss, fs) = lexitem
 def revItem (sl, ss, fs):
     safe_fs = fs[:] # make a copy
     if len(fs)>0:
@@ -338,12 +517,15 @@ example:
 lexArrays2stringTrees((sA0,lA0,tA0))
 """
 
+
+# done, included in build_lex_trees
 def findRoot(f,trees): # find subtree with root matching f, if there is one
     for i,t in enumerate(trees):
         if (isinstance(t,list) and len(t)>0 and t[0]==f):
             return i
     return -1
 
+# done, see build_lex_trees
 def revItemIntoLexTrees(lst, ss, fs):  #changed EA
      for f in fs:
          i = findRoot(f,lst)
@@ -372,10 +554,12 @@ revItem3 = revItem(sA0,item3)
 revItemIntoLexTrees(lexTreeList0,revItem3)
 """
 
+# done
 def gIntoLexTreeList(sA,g):
     lexTrees = []
     for ri in [revItem(sA,i[0],i[1]) for i in g]:  #changed EA "i -> i[0],i[1]"
         revItemIntoLexTrees(lexTrees,ri[0], ri[1]) #changed EA "ri -> ri[0],ri[1]"
+
     return lexTrees
 """
 example:
@@ -414,8 +598,11 @@ Since lists are arrays in python, these lists will let us
 get these values with simple O(1) lookup.
 """
 
+# done
 def gIntoLexArrayTypeArray(sA,g):
     lst = gIntoLexTreeList(sA,g)
+    print('***** lst')
+    pprint.pprint(lst)
     lexArray = [[]]*len(sA)
     typeArray = [0]*len(sA)
     for t in lst:
@@ -423,6 +610,10 @@ def gIntoLexArrayTypeArray(sA,g):
         (i,j)=t[0]
         lexArray[j]=t[1:]
         typeArray[j]=i
+    print('***** lexArray')
+    pprint.pprint(lexArray)
+    print('***** typeArray')
+    pprint.pprint(typeArray)
     return (lexArray,typeArray)
 """
 example:
@@ -1060,6 +1251,7 @@ parse(mgxx,'T',0.001,inpt0)
 def go():
     go1(mg0,'C',0.0001)
 '''
+# done
 def go1(lex,start,minP, sentence='wine'): # initialize and begin
     sA = stringValsOfG(lex)
     (lA,tA) = gIntoLexArrayTypeArray(sA,lex)
@@ -1078,6 +1270,7 @@ def go1(lex,start,minP, sentence='wine'): # initialize and begin
     #goLoop(lex,(sA,lA,tA),iq,minP)
     return auto_runner(sentence, lex, (sA, lA, tA), iq, minP)
 
+# done
 def auto_runner(sentence, g, gA, iq, minP):
     new_iq = iq[:]
     inpt = sentence.split()
