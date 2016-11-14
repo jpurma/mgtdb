@@ -201,12 +201,16 @@ class Feature:
 
     def __init__(self, ftype, value):
         self.ftype = ftype
-        self.value = f
+        self.value = value
         self.int_ftype = 0
         self.int_value = 0
 
     def __str__(self):
         return ftype_map[self.ftype] + self.value
+
+    def __repr__(self):
+        return 'F(%s, %s)' % (self.int_ftype, self.int_value)
+
 
     def __eq__(self, other):
         return self.int_ftype == other.int_ftype and self.int_value == other.int_value
@@ -215,13 +219,13 @@ class Feature:
 
 class LexItem:
 
-    def __init__(self, word, features):
-        self.word = word
+    def __init__(self, words, features):
+        self.words = words
         self.features = features
         self.rev_features = reversed(features)
 
     def __str__(self):
-        return ' '.join(word) + '::' + ' '.join([str(f) for f in self.features])
+        return ' '.join(self.words) + '::' + ' '.join([str(f) for f in self.features])
 
 class LexTreeNode:
     def __init__(self, key):
@@ -230,14 +234,13 @@ class LexTreeNode:
         self.roots = []
 
     def __repr__(self):
-        return str([self.key] + self.children + self.roots)
-
+        return 'LN' + str([self.key] + self.children + self.roots)
 
 class Grammar:
     ftypes = ['cat', 'sel', 'neg', 'pos']
 
     def __init__(self, lex_tuples, start, min_p, sentence):
-        self.d = {}
+        self.d = []
         self.min_p = min_p
         self.feature_values = [] # sA
         self.lex_array = []
@@ -246,23 +249,24 @@ class Grammar:
         # Also prepare integer representations of features and give each LexItem a reversed 
         # feature list
         for words, feature_tuples in lex_tuples:
-            for word in words:
-                features = []
-                for ftype, value in feature_tuples:
-                    if value not in self.feature_values:
-                        self.feature_values.append(value)
-                    feat = Feature(ftype, value)
-                    feat.int_ftype = ftypes.index(ftype)
-                    feat.int_value = self.feature_values.index(value)
-                    features.append(feat)
-                self.d[word] = LexItem(word, features)
+            features = []
+            for ftype, value in feature_tuples:
+                if value not in self.feature_values:
+                    self.feature_values.append(value)
+                feat = Feature(ftype, value)
+                feat.int_ftype = Grammar.ftypes.index(ftype)
+                feat.int_value = self.feature_values.index(value)
+                features.append(feat)
+            self.d.append(LexItem(words, features))
         self.build_lex_trees()
         self.start_int = self.feature_values.index(start)
+
+        # Preparing iq
         tree_size = len(self.feature_values)
         h = self.lex_array[self.start_int]
         m = [[]] * tree_size
         mx = [[]] * tree_size
-        ifs = [(0,startInt)]    # for derivation tree
+        ifs = [(0, self.start_int)]    # for derivation tree
         dx = []                 # for derivation tree
         mifs = [[]] * tree_size     # for derivation tree
         dt = (ifs,dx,mifs)      # for derivation tree
@@ -270,17 +274,47 @@ class Grammar:
         iq = [([],ic)]
         heapq_mod.heapify(iq)   #modifed EA
         #goLoop(lex,(sA,lA,tA),iq,minP)
+        #output = io.StringIO()
+        #pptree(output, ['.'] + self.lex_array_as_list())
+        #print(output.getvalue())
+        #output.close()
+        #print(self.feature_values)
         return self.auto_runner(sentence, iq)
+
+    def build_lex_trees(self):
+        base = LexTreeNode(None)
+        for lexitem in self.d:
+            node = base
+            for f in lexitem.rev_features:
+                found = False
+                for child in node.children:
+                    if child.key == f:
+                        found = True
+                        node = child
+                        break                        
+                if not found:
+                    new_node = LexTreeNode(f)
+                    node.children.append(new_node)
+                    node = new_node
+            node.roots.append(lexitem.words) 
+        self.lex_trees = base.children
+        self.lex_array = [[]] * len(self.feature_values)
+        self.type_array = [0] * len(self.feature_values)
+        for node in base.children:
+            index = node.key.int_value
+            self.lex_array[index] = node
+            self.type_array[index] = node.key.int_ftype
 
     def auto_runner(self, sentence, iq):
         #gA = (sA, lA, tA) = self.feature_values, self.lex_array, self.type_array
         new_iq = iq[:]
+        print(new_iq)
         inpt = sentence.split()
         print('inpt =' + str(inpt))  #changed EA
         dq = [(-1.0,inpt,new_iq,[[]])]
         heapq_mod.heapify(dq)   #changed EA
         t0 = time.time()
-        (dns, remaining_dq) = derive(dq)  #now returns dq 
+        (dns, remaining_dq) = self.derive(dq)  #now returns dq 
         #(dns, remaining_dq) = derive(gA,minP,dq)  #now returns dq 
         t1 = time.time()
         idtree = dNodes2idtree(dns)
@@ -322,47 +356,259 @@ class Grammar:
         results['pg'] = output.getvalue()
         output.close()
         # l
-        results['l'] = list2nltktree(['.']+lexArrays2stringTrees(self.feature_values, self.lex_array, self.type_array))
+        results['l'] = list2nltktree(['.'] + self.lex_array_as_list())
         # pl
         output = io.StringIO()
-        pptree(output, ['.']+lexArrays2stringTrees(self.feature_values, self.lex_array, self.type_array))   #changed EA
+        pptree(output, ['.'] + self.lex_array_as_list())   #changed EA
         results['pl'] = output.getvalue()
         output.close()
 
         return results
 
+    def lex_array_as_list(self):
+        def as_list(node):
+            if isinstance(node, LexTreeNode):
+                return [str(node.key)] + [as_list(x) for x in node.children] + node.roots
+            else:
+                return node
+        return [as_list(y) for y in self.lex_array]
+
     def show(self, out):
-        for item in self.d.values():
+        for item in self.d:
             out.write(str(item))
 
     def __str__(self):
         return str(self.d)
 
 
-    def build_lex_trees(self, ss, fs):
-        base = LexTreeNode(None)
-        for lexitem in self.d.values():
-            node = base
-            for f in lexitem.rev_features:
-                found = False
-                for child in node.children:
-                    if child.key == f:
-                        found = True
-                        node = child
-                        break                        
-                if not found:
-                    new_node = LexTreeNode(f)
-                    node.children.append(new_node)
-                    node = new_node
-            node.roots.append([lexitem.word]) # <-- make sure that .word is str, not list already
-        self.lex_array = [[]] * len(self.feature_values)
-        self.type_array = [0] * len(self.feature_values)
-        for node in base.children:
-            index = node.key.int_fvalue
-            self.lex_array[index] = node
-            self.type_array[index] = node.key.int_ftype
+    def derive(self, dq): # modify this to return dq, so alternative parses can be found (CHECK! :) )
+        p = 1.0
+        while len(dq) > 0:
+            (p,inpt,iq,dns) = heapq_mod.heappop(dq)
+            print('# of parses in beam=' +str(len(dq)+1)+', p(best parse)=' + str((-1 * p)))  #changed EA
+            if len(iq)==0 and len(inpt)==0:
+                print('parse found')               #changed EA  -- END OF PARSE
+                return (dns, dq)  # success!
+            elif len(iq) > 0:
+                prediction = heapq_mod.heappop(iq)
+                ic = prediction[1]
+                sofar = []
+                self.exps(inpt,ic,sofar)
+                if len(sofar) > 0:
+                    new_p = p / float(len(sofar))
+                    if new_p < self.min_p:
+                        insertNewParses(inpt,p,new_p,iq,dq,dns,sofar)
+                    else:
+                        print('improbable parses discarded')     #changed EA
+        print('no parse found')   #changed EA     #changed EA
+        return ([[],([],(['no parse'],[]))], dq) # failure! #return dq now as well (an empty list now) EA
+
+    def exps(self, inpt, ic, sofar):  #last def input to be changed....
+        ((h,m),(hx,mx),dt) = ic    #added EA
+        print('h:', h)
+        print('m:', m)
+        print('hx:', hx)
+        print('mx:', mx)
+        print('dt:', dt)
+        for child in h.children:       #"for sub-branch in category branch"
+            if child.key.ftype == 'sel': # feature type 1 is 'sel'
+                feature_i = child.key.int_value # set i to feature value
+                if child.roots: 
+                    # merge a (non-moving) complement
+                    self.merge1(inpt, child.roots, feature_i, ic, sofar)
+                    # merge a (moving) complement
+                    self.merge3(inpt, child.roots, feature_i, ic, sofar)
+                elif child.children: 
+                    # merge a (non-moving) specifier
+                    self.merge2(inpt, child.children, feature_i, ic, sofar)
+                    # merge a (moving) specifier
+                    self.merge4(inpt, child.children, feature_i, ic, sofar)
+            elif child.key.ftype == 'pos': # feature type 3 is 'pos'
+                feature_i = child.key.int_value # set i to feature value
+                # again, either children or roots of child are of interest below
+                self.move1(inpt, child, feature_i, ic, sofar)
+                self.move2(inpt, child, feature_i, ic, sofar)
+            else:
+                raise RuntimeError('exps')
+        for root in h.roots:
+            #the next node is a string node
+            self.scan(root,inpt,m,mx,dt,sofar)
 
 
+    # merge a (non-moving) complement
+    def merge1(self, inpt, terms, i, ic, sofar):       # dt=(ifs,dx,mifs)
+        ((h,m),(hx,mx),dt) = ic                 #added EA
+        new_head_index=hx[:]
+        new_head_index.append(0)
+        new_comp_index=hx[:]
+        new_comp_index.append(1)
+        empty_m = [[]]*len(m)
+        empty_mx = [[]]*len(mx)
+        ifs = dt[0][:] # copy
+        ifs.append((1,i)) # extend ifs
+        dx = dt[1][:] # copy
+        dx.append(0) # extend dx
+        empty_mifs = [[]]*len(m)
+        dt1 = (ifs,dx,empty_mifs)
+        ic1 = ((terms,empty_m),(new_head_index,empty_mx),dt1) # no movers to lexical head
+        new_ifs = [(0,i)]
+        new_dx = dt[1][:] # copy
+        new_dx.append(1) # extend new_dx
+        mifs = dt[2][:] # copy
+        dt2 = (new_ifs,new_dx,mifs) # movers to complement
+        ic2 = ((self.lex_array[i],m),(new_comp_index,mx),dt2) # movers to complement only
+        exp = ([],[ic1,ic2])
+        sofar.append(exp)
+
+    # merge a (non-moving) specifier
+    def merge2(self,inpt,nonterms,i,ic,sofar):    # dt=(ifs,dx,mifs) EA
+        ((h,m),(hx,mx),dt) = ic                 #added EA
+        new_head_index=hx[:]
+        new_head_index.append(1)
+        new_comp_index=hx[:]
+        new_comp_index.append(0)
+        empty_m = [[]]*len(m)
+        empty_mx = [[]]*len(mx)
+        ifs = dt[0][:] # copy
+        ifs.append((1,i)) # extend ifs
+        dx = dt[1][:] # copy
+        dx.append(0) # extend dx
+        mifs = dt[2][:] # copy
+        dt1 = (ifs,dx,mifs)
+        ic1 = ((nonterms,m),(new_head_index,mx),dt1) # movers to head
+        new_ifs = [(0,i)]
+        new_dx = dt[1][:] # copy
+        new_dx.append(1) # extend new_dx
+        empty_mifs = [[]]*len(m)
+        dt2 = (new_ifs,new_dx,empty_mifs)
+        ic2 = ((lA[i],empty_m),(new_comp_index,empty_mx),dt2) # no movers to spec
+        exp = ([],[ic1,ic2])
+        sofar.append(exp)
+
+    # merge a (moving) complement
+    def merge3(self,inpt, terms,i,ic,sofar):      
+        ((h,m),(hx,mx),dt) = ic             #added EA
+        for nxt in range(len(m)):
+            (ok,matchingTree) = memberFval(i,m[nxt])   #check to see if term is a mover plain and simple
+            if ok:
+                ts = matchingTree[1:]
+                tsx = mx[nxt]
+                ifs0 = dt[2][nxt][:]
+                empty_m = [[]]*len(m)
+                empty_mx = [[]]*len(mx)      
+                empty_mifs = [[]]*len(m)
+                n = m[:]
+                nx = mx[:]
+                nifs = dt[2][:] # copy
+                n[nxt] = [] # we used the "next" licensee, so now empty
+                nx[nxt] = []
+                nifs[nxt] = []
+                ifs = dt[0][:] # copy
+                ifs.append((1,i)) # extend ifs with (sel i)
+                dx = dt[1][:] # copy
+                dx.append(0) # extend dx
+                dt1 = (ifs,dx,empty_mifs)
+                ic1 = ((terms,empty_m),(hx,empty_mx),dt1)
+                ifs0.append((0,i)) # add (cat i) feature
+                new_dx = dt[1][:] # copy
+                new_dx.append(1) # extend new_dx
+                dt2 = (ifs0,new_dx,nifs) # movers to complement
+                ic2 = ((ts,n),(tsx,nx),dt2) # movers passed to complement
+                exp = ([],[ic1,ic2])
+                sofar.append(exp)
+
+    # merge a (moving) specifier
+    def merge4(self, inpt,nonterms,i,ic,sofar):          
+        ((h,m),(hx,mx),dt) = ic                     #added EA
+        for nxt in range(len(m)):
+            (ok,matchingTree) = memberFval(i,m[nxt])
+            if ok:
+                ts = matchingTree[1:]
+                tsx = mx[nxt]
+                ifs0 = dt[2][nxt][:] # copy
+                empty_m = [[]]*len(m)
+                empty_mx = [[]]*len(mx)                
+                empty_mifs = [[]]*len(m)
+                n = m[:]
+                nx = mx[:]
+                nifs = dt[2][:]
+                n[nxt] = [] # we used the "next" licensee, so now empty
+                nx[nxt] = []
+                nifs[nxt] = []
+                ifs = dt[0][:] # copy
+                ifs.append((1,i)) # extend ifs
+                dx = dt[1][:] # copy
+                dx.append(0) # extend dx
+                dt1 = (ifs,dx,nifs)
+                ic1 = ((nonterms,n),(hx,nx),dt1)
+                ifs0.append((0,i))
+                new_dx = dt[1][:] # copy
+                new_dx.append(1) # extend new_dx
+                dt2 = (ifs0,new_dx,empty_mifs)
+                ic2 = ((ts,empty_m),(tsx,empty_mx),dt2) # movers passed to complement
+                exp = ([],[ic1,ic2])
+                sofar.append(exp)
+
+    def move1(self,inpt,ts,i,ic,sofar):    
+        ((h,m),(hx,mx),dt) = ic          #added EA
+        if m[i] == []:  # SMC
+            n = m[:]
+            nx = mx[:]
+            n[i] = self.lex_array[i]
+            nx[i] = hx[:]
+            nx[i].append(0)
+            new_head_index=hx[:]
+            new_head_index.append(1)
+            ifs = dt[0][:] # copy
+            ifs.append((3,i)) # extend ifs with (pos i)
+            dx = dt[1][:] # copy
+            dx.append(0) # extend dx
+            mifs = dt[2][:] # copy
+            mifs[i] = [(2,i)] # begin new mover with (neg i)
+            dt1 = (ifs,dx,mifs)
+            ic1 = ((ts,n),(new_head_index,nx),dt1)  #ts is remainder of head branch
+            exp = ([],[ic1])
+            sofar.append(exp)
+
+    def move2(self,inpt,ts,i,ic,sofar):  
+        ((h,m),(hx,mx),dt) = ic          #added EA
+        for nxt in range(len(m)):
+            (ok,matchingTree) = memberFval(i,m[nxt])
+            if ok:
+                rootF = matchingTree[0][1] # value of rootLabel
+                if rootF==nxt or m[rootF]==[]: # SMC
+                    mts = matchingTree[1:][:]
+                    mtsx = mx[nxt][:]
+                    ifs0 = dt[2][nxt][:]
+                    n = m[:]
+                    nx = mx[:]
+                    nifs = dt[2][:]
+                    n[nxt] = [] # we used the "next" licensee, so now empty
+                    nx[nxt] = []
+                    nifs[nxt] = []
+                    n[rootF] = mts
+                    nx[rootF] = mtsx
+                    ifs0.append((2,i)) # extend prev ifs of mover with (neg i)
+                    nifs[rootF] = ifs0
+                    ifs = dt[0][:]
+                    ifs.append((3,i)) # extend ifs with (pos i)
+                    dx = dt[1][:]
+                    dx.append(0) # extend dx
+                    dt1 = (ifs,dx,nifs)
+                    ic1 = ((ts,n),(hx,nx),dt1)
+                    exp = ([],[ic1])
+                    sofar.append(exp)
+
+
+    def scan(self, w,inpt,m,mx,dt,sofar):
+        if emptyListArray(sofar):
+            (ok,remainderInt) = prefixT(w,inpt)  #this actually checks to see if word is present in given sentence
+            if ok:
+                #print(w)
+                exp = (w,[(([],m),([],mx),dt)])  # unlike recognizer, we return w(ord) here
+                sofar.append(exp)
+
+############################################################################################
 
 """
 It will be good practice to print out those grammars in slightly
@@ -486,6 +732,7 @@ revItem(sA0,item0)
 """
 
 # some functions for print out
+# done (implicitly through Features)
 def lexTree2stringTree(sA,t):
     if len(t)>0 and isinstance(t[0],tuple):
         (itype, cat) = fOfInts(sA,t[0][0],t[0][1])   #added EA
@@ -500,16 +747,18 @@ intsOfF(sA0,('cat','D'))
 lA0[0]
 lexTree2stringTree(sA0,[intsOfF(sA0,('cat','D'))]+lA0[0])
 """
+# done (implicitly through Features)
 def lexTrees2stringTrees(sA,ts):
     return [lexTree2stringTree(sA,t) for t in ts]
 
-# to get trees in the array, insert the root feature determined by the index        
+# to get trees in the array, insert the root feature determined by the index   
+# done -- lex_array has the root feature as Node.key     
 def lexArrays2lexTrees(sA, lA, tA):    # changed EA
     return [ ([(tA[i],i)]+lA[i]) for i in range(len(sA)) ]
 """
 example: lexArrays2lexTrees((sA0,lA0,tA0))
 """
-
+# done -- just print the string version, not repr.
 def lexArrays2stringTrees(sA,lA,tA):   #changed EA
     return lexTrees2stringTrees(sA,lexArrays2lexTrees(sA,lA,tA))  #changed EA
 """
@@ -573,6 +822,7 @@ list2nltktree(t0).draw()
 That tree has the integer representation of the categories,
 but now it's easy to "beautify" the features:
 """
+# done (not used)
 def list2btfytree(sA,listtree):
     if listtree==[]:
         return []
@@ -627,6 +877,7 @@ check: OK
 t2 = ['.']+lexArrays2stringTrees((sA2,lA2,tA2))
 TreeView(list2nltktree(st2))
 """
+################################################################################################
 
 def btfyIndex(lst):
     return ''.join([str(i) for i in lst])
@@ -844,6 +1095,7 @@ len(dq0)
 printDQ(lexArrays0,dq0)
 """ 
 
+# done, could use any() instead
 def emptyListArray(m):
     result = True
     for e in m:
@@ -856,6 +1108,7 @@ emptyListArray([[],[],[]])
 emptyListArray([[],[],[1]])
 """ 
 
+# done, not needed because LexTreeNode has this information
 def terminalsOf(ts):
     terms=[]
     nonterms=[]
@@ -874,7 +1127,9 @@ prefixT(w,input) returns (True,n) if input[:n]=w
  else returns (False,0) if w not a prefix of input
 """ 
 def prefixT(w,lst):
+    print('prefixT: ', w, lst)
     if w==lst[0:len(w)]:
+        print('True, ', len(w))
         return (True,len(w))
     else:
         return (False,0)  
@@ -1068,11 +1323,20 @@ def move2(inpt,ts,i,ic,sofar):
 def exps(lexArrays,inpt,ic,sofar):  #last def input to be changed....
     (sA,lA,tA) = lexArrays     #added EA
     ((h,m),(hx,mx),dt) = ic    #added EA
+    print('h:', h)
+    print('len(h):', len(h))
+    print('m:', m)
+    print('hx:', hx)
+    print('mx:', mx)
+    print('dt:', dt)
+
     for t in h:       #"for sub-branch in category branch"
         if len(t)>0 and isinstance(t[0],tuple):    #the next node is a feature node (not a string node)
+            print('found tuple')
             if t[0][0] == 1: # feature type 1 is 'sel'
                 i = t[0][1] # set i to feature value
                 (terms,nonterms)= terminalsOf(t[1:]) #the next node is either nonterm or term
+                assert(not (terms and nonterms))
                 merge1(lA,inpt,terms,i,((h,m),(hx,mx),dt),sofar)
                 merge2(lA,inpt,nonterms,i,((h,m),(hx,mx),dt),sofar)
                 merge3(inpt,terms,i,((h,m),(hx,mx),dt),sofar)
@@ -1085,6 +1349,7 @@ def exps(lexArrays,inpt,ic,sofar):  #last def input to be changed....
             else:
                 raise RuntimeError('exps')
         else:    #the next node is a string node
+            print('got this:', t)
             scan(t,inpt,m,mx,dt,sofar)
 
 # unlike recognizer, we pass in inpt, because now scan returns w
@@ -1115,6 +1380,7 @@ def insertNewParses(inpt,p,new_p,q,dq,dns0,exps):
             newParse = (new_p,inpt,safe_q,dns)
             heapq_mod.heappush(dq,newParse) #modified EA
 
+# worked on
 def derive(lexArrays,minP,dq): # modify this to return dq, so alternative parses can be found (CHECK! :) )
     p = 1.0
     while len(dq) > 0:
@@ -1254,6 +1520,7 @@ def go():
 # done
 def go1(lex,start,minP, sentence='wine'): # initialize and begin
     sA = stringValsOfG(lex)
+    print(sA)
     (lA,tA) = gIntoLexArrayTypeArray(sA,lex)
     gA = (sA,lA,tA)
     startInt = intsOfF(sA,'cat',start)[1]     #changed EA (function arguments)
@@ -1735,8 +2002,8 @@ http://docs.python.org/library/functions.html#__import__
 if __name__ == '__main__':
     import mg0 as grammar
     results = go1(grammar.g, 'C', -0.0001, sentence="the king prefers the beer")
+    results2 = Grammar(grammar.g, 'C', -0.0001, sentence="the king prefers the beer")
     for key in sorted(list(results.keys())):
         print(key)
         print(results[key])
-
 
