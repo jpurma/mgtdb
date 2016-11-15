@@ -680,9 +680,9 @@ def dnodes_to_dtree(dns):
     if len(nonterms) == 0:
         raise RuntimeError('buildIDtreeFromDnodes: error')
     else:
-        heapq.heapify(nonterms) 
-        heapq.heapify(terms)
-        root = heapq.heappop(nonterms)
+        terms.sort()
+        nonterms.sort()
+        root = nonterms.pop(0)
         t = build_idtree_from_dnodes(root,nonterms,terms,[])
         if len(terms)!=0 or len(nonterms)!=0:   #changed EA(<> is now only !=)
             print('dNodes2idtree error: unused derivation steps') #changed EA
@@ -692,17 +692,20 @@ def dnodes_to_dtree(dns):
 
 # build the derivation tree that has parent as its root, and return it
 def build_idtree_from_dnodes(parent,nodes,terminals,t):
-    if len(terminals)>0 and min(terminals)[0]==parent:
-        leaf = heapq.heappop(terminals)
+    def child(n1,n2): # boolean: is n1 a prefix of n2? If so: n2 is a child of n1
+        return n1 == n2[0:len(n1)]
+
+    if terminals and terminals[0][0] == parent:
+        leaf = terminals.pop(0)
         t.append(leaf[1])
-    elif len(nodes)>0 and child(parent,min(nodes)):
-        root = heapq.heappop(nodes)
+    elif nodes and child(parent, nodes[0]):
+        root = nodes.pop(0)
         t.append(['.'])  # place-holder
         t = t[-1]
         child0 = build_idtree_from_dnodes(root,nodes,terminals,t)
-        if len(nodes)>0 and child(parent,min(nodes)):
+        if nodes and child(parent, nodes[0]):
             t[0]='*'  # replace place-holder
-            root1 = heapq.heappop(nodes)
+            root1 = nodes.pop(0)
             child1 = build_idtree_from_dnodes(root1,nodes,terminals,t)
         else:
             t[0]='o'  # replace place-holder
@@ -2406,7 +2409,7 @@ http://docs.python.org/library/functions.html#__import__
 if __name__ == '__main__':
     import mg0 as grammar
     sentence = "the king prefers the beer"
-    sentence = "which king says which queen knows which king says which wine the queen prefers"
+    #sentence = "which king says which queen knows which king says which wine the queen prefers"
     results = go1(grammar.g, 'C', -0.0001, sentence=sentence)
     gr = Grammar(grammar.g, 'C', -0.0001, sentence=sentence)
     results2 = gr.results
