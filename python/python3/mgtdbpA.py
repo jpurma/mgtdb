@@ -382,37 +382,37 @@ class Grammar:
         (dns, remaining_dq) = self.derive(dq)  #now returns dq 
         #(dns, remaining_dq) = derive(gA,minP,dq)  #now returns dq 
         t1 = time.time()
-        idtree = dNodes2idtree(dns)
-        dt = idtree2dtree(self.feature_values, idtree)
+        print(str(t1 - t0) + "seconds") #changed EA
+        idtree = self.dnodes_to_idtree(dns)
+        dt = idtree_to_dtree(idtree)
         results = {}
 
-        print(str(t1 - t0) + "seconds") #changed EA
         # d
-        results['d'] = list2nltktree(dt2t(dt))
+        results['d'] = list2nltktree(dtree_to_tree(dt))
         # pd
         output = io.StringIO()
-        pptree(output, dt2t(dt))
+        pptree(output, dtree_to_tree(dt))
         results['pd'] = output.getvalue()
         output.close()
         # s
-        results['s'] = list2nltktree(st2t(dt2st(dt)))
+        results['s'] = list2nltktree(state_tree_to_tree(dtree_to_state_tree(dt)))
         # ps
         output = io.StringIO()
-        pptree(output, st2t(dt2st(dt)))
+        pptree(output, state_tree_to_tree(dtree_to_state_tree(dt)))
         results['ps'] = output.getvalue()
         output.close()
         # b
-        results['b'] = list2nltktree(bt2t(dt2bt(dt)))
+        results['b'] = list2nltktree(bare_tree_to_tree(dtree_to_bare_tree(dt)))
         # pb
         output = io.StringIO()
-        pptree(output, bt2t(dt2bt(dt)))
+        pptree(output, bare_tree_to_tree(dtree_to_bare_tree(dt)))
         results['pb'] = output.getvalue()
         output.close()
         # x
-        results['x'] = list2nltktree(dt2xb(dt))
+        results['x'] = list2nltktree(dtree_to_xbar(dt))
         # px
         output = io.StringIO()
-        pptree(output, dt2xb(dt))
+        pptree(output, dtree_to_xbar(dt))
         results['px'] = output.getvalue()
         output.close()
         # pg
@@ -428,7 +428,7 @@ class Grammar:
         results['pl'] = output.getvalue()
         output.close()
 
-        return results
+        self.results = results
 
     def lex_array_as_list(self):
         def as_list(node):
@@ -473,21 +473,20 @@ class Grammar:
             if child.key.ftype == 'sel': # feature type 1 is 'sel'
                 if child.roots: 
                     # merge a (non-moving) complement
-                    self.merge1(inpt, child.roots, feature_i, ic)
+                    self.merge1(child, feature_i, ic)
                     # merge a (moving) complement
-                    self.merge3(inpt, child.roots, feature_i, ic)
+                    self.merge3(child, feature_i, ic)
                 elif child.children: 
                     # merge a (non-moving) specifier
-                    self.merge2(inpt, child.children, feature_i, ic)
+                    self.merge2(child, feature_i, ic)
                     # merge a (moving) specifier
-                    self.merge4(inpt, child.children, feature_i, ic)
+                    self.merge4(child, feature_i, ic)
             elif child.key.ftype == 'pos': # feature type 3 is 'pos'
                 # again, either children or roots of child are of interest below
-                self.move1(inpt, child, feature_i, ic)
-                self.move2(inpt, child, feature_i, ic)
+                self.move1(child, feature_i, ic)
+                self.move2(child, feature_i, ic)
             else:
                 raise RuntimeError('exps')
-        raise hell
         for root in ic.h.roots:
             #the next node is a string node
             self.scan(root, inpt, ic)
@@ -495,10 +494,10 @@ class Grammar:
 #ftypes = ['cat', 'sel', 'neg', 'pos']
 
     # merge a (non-moving) complement
-    def merge1(self, inpt, terms, i, ic):       # dt=(ifs,dx,mifs)
+    def merge1(self, node, i, ic):       # dt=(ifs,dx,mifs)
         print('doing merge1')
         ic1 = ic.copy() # no movers to lexical head
-        ic1.h = terms 
+        ic1.h = node
         ic1.hx.append(0) # new head index
         ic1.m = [[]] * len(ic.m)
         ic1.mx = [[]] * len(ic.mx)
@@ -515,10 +514,10 @@ class Grammar:
         self.sofar.append(exp)
 
     # merge a (non-moving) specifier
-    def merge2(self, inpt, nonterms, i, ic):    # dt=(ifs,dx,mifs) EA
+    def merge2(self, node, i, ic):    # dt=(ifs,dx,mifs) EA
         print('doing merge2')
         ic1 = ic.copy() # movers to head
-        ic1.h = nonterms
+        ic1.h = node
         ic1.hx.append(1) # new head index
         ic1.dt.ifs.append(self.create_feature('sel', i)) # extend ifs
         ic1.dt.dx.append(0) # extend dx
@@ -535,13 +534,13 @@ class Grammar:
         self.sofar.append(exp)
 
     # merge a (moving) complement
-    def merge3(self, inpt, terms, i, ic):      
+    def merge3(self, node, i, ic):      
         print('doing merge3')
         for nxt, m_nxt in enumerate(ic.m):
             matching_tree = m_nxt and m_nxt.feature_in_children(i) #check to see if term is a mover plain and simple
             if matching_tree:
                 ic1 = ic.copy()
-                ic1.h = terms
+                ic1.h = node
                 ic1.m = [[]] * len(ic.m)
                 ic1.mx = [[]] * len(ic.mx)      
                 ic1.dt.ifs.append(self.create_feature('sel', i)) # extend ifs with (sel i)
@@ -561,13 +560,13 @@ class Grammar:
                 self.sofar.append(exp)
 
     # merge a (moving) specifier
-    def merge4(self, inpt, nonterms, i, ic):          
+    def merge4(self, node, i, ic):          
         print('doing merge4')
         for nxt, m_nxt in enumerate(ic.m):
             matching_tree = m_nxt and m_nxt.feature_in_children(i)
             if matching_tree:
                 ic1 = ic.copy()
-                ic1.h = nonterms
+                ic1.h = node
                 ic1.m[nxt] = [] # we used the "next" licensee, so now empty
                 ic1.mx[nxt] = []
                 ic1.dt.ifs.append(self.create_feature('sel', i)) # extend ifs
@@ -583,15 +582,14 @@ class Grammar:
                 ic2.dt.ifs.append(self.create_feature('cat', i))
                 ic2.dt.dx.append(1) # extend new_dx
                 ic2.dt.mifs = [[]] * len(ic.m)                
-                print(nonterms)
                 exp = Exp(ics=[ic1, ic2])
                 self.sofar.append(exp)
 
-    def move1(self,inpt,ts,i,ic):    
+    def move1(self, node, i, ic):    
         if ic.m[i] == []:  # SMC
             print('doing move1')
             ic1 = ic.copy() 
-            ic1.h = ts #ts is remainder of head branch
+            ic1.h = node #node is remainder of head branch
             ic1.m[i] = self.lex_array[i]
             ic1.hx.append(1)
             ic1.mx[i] = ic.hx[:]
@@ -602,7 +600,7 @@ class Grammar:
             exp = Exp(ics=[ic1])
             self.sofar.append(exp)
 
-    def move2(self,inpt,ts,i,ic):  
+    def move2(self, node, i, ic):  
         for nxt, m_nxt in enumerate(ic.m):
             matching_tree = m_nxt and m_nxt.feature_in_children(i)
             if matching_tree:
@@ -611,7 +609,7 @@ class Grammar:
                     print('doing move2')
                     mts = matching_tree #matchingTree[1:][:]
                     ic1 = ic.copy()
-                    ic1.h = ts
+                    ic1.h = node
                     ic1.m[nxt] = [] # we used the "next" licensee, so now empty
                     ic1.m[root_f] = mts
                     ic1.mx[root_f] = ic1.mx[nxt][:]
@@ -667,6 +665,368 @@ class Grammar:
                     heapq_mod.heappush(safe_q, (new_index, ic))  #modified EA
                 new_parse = (new_p, inpt, safe_q, dns)
                 heapq_mod.heappush(dq, new_parse) #modified EA
+
+    def dnodes_to_idtree(self, dns):
+        nonterms = []
+        terms = []
+        for dn in dns:
+            print(dn)
+            if isinstance(dn,tuple):  # a terminal is a pair (node,terminal string list)
+                terms.append(dn)
+            else:
+                nonterms.append(dn) # node is an integer list
+        if len(nonterms) == 0:
+            raise RuntimeError('buildIDtreeFromDnodes: error')
+        else:
+            heapq.heapify(nonterms) 
+            heapq.heapify(terms)
+            root = heapq.heappop(nonterms)
+            t = build_idtree_from_dnodes(root,nonterms,terms,[])
+            if len(terms)!=0 or len(nonterms)!=0:   #changed EA(<> is now only !=)
+                print('dNodes2idtree error: unused derivation steps') #changed EA
+                print('terms=' + str(terms))   #changed EA
+                print('nonterms='+ str(nonterms))  #changed EA
+            return t
+
+
+#### Tree conversions and printing
+
+def idtree_to_dtree(t):
+    print('idtree_to_dtree:', t)
+    if t[0]=='*':
+        dt0 = idtree_to_dtree(t[1])
+        dt1 = idtree_to_dtree(t[2])
+        return ['*',dt0,dt1]
+    elif t[0]=='o':
+        dt0 = idtree_to_dtree(t[1])
+        return ['o',dt0]
+    elif isinstance(t,list) and len(t)==1:
+        dt0 = idtree_to_dtree(t[0])
+        return dt0
+    else:        # leaf t has the form (w,ifs)
+        return (t[0], t[1])   #argCount changed ERIK
+
+
+# build the derivation tree that has parent as its root, and return it
+def build_idtree_from_dnodes(parent,nodes,terminals,t):
+    if len(terminals)>0 and min(terminals)[0]==parent:
+        leaf = heapq.heappop(terminals)
+        t.append(leaf[1])
+    elif len(nodes)>0 and child(parent,min(nodes)):
+        root = heapq.heappop(nodes)
+        t.append(['.'])  # place-holder
+        t = t[-1]
+        child0 = build_idtree_from_dnodes(root,nodes,terminals,t)
+        if len(nodes)>0 and child(parent,min(nodes)):
+            t[0]='*'  # replace place-holder
+            root1 = heapq.heappop(nodes)
+            child1 = build_idtree_from_dnodes(root1,nodes,terminals,t)
+        else:
+            t[0]='o'  # replace place-holder
+    else:
+        raise RuntimeError('build_idtree_from_dnodes: error')
+    return t
+
+def dtree_to_tree(t):
+    if t[0]=='*':
+        dt0 = dtree_to_tree(t[1])
+        dt1 = dtree_to_tree(t[2])
+        return ['*',dt0,dt1]
+    elif t[0]=='o':
+        dt0 = dtree_to_tree(t[1])
+        return ['o',dt0]
+    else:        # leaf t has the form (w,ifs)
+        return (t[0],[str(f) for f in t[1]])     #changed 3.1 ERIK
+
+"""
+convert derivation tree to state tree
+"""
+# remember:
+# fs[0] = head features, fs[0][0] = 1st feature of head, fs[0][0][0] = type of 1st feature
+def st_merge_check(fs0,fs1):
+    if fs0[0][0].ftype == 'sel' and fs1[0][0].ftype == 'cat' and fs0[0][0].value == fs1[0][0].value:
+        newfs = [fs0[0][1:]] # remaining head1 features
+        if fs1[0][1:] != []: # any remaining features from head2? If so, they're movers  #changed EA
+            newfs.append(fs1[0][1:])
+        newfs.extend(fs0[1:]) # add movers1
+        newfs.extend(fs1[1:]) # add movers2
+        return newfs
+    else:
+        raise RuntimeError('merge_check error')
+
+def st_getMover(f,moverFeatureLists):
+    mover = []
+    remainder = []
+    for moverFeatureList in moverFeatureLists:
+        if moverFeatureList[0][1] == f:
+            if mover == []:  # OK if we did not already find an f
+                mover = [moverFeatureList[1:]] # put remainder into singleton list
+            else: # if we find 2 f's, there is an SMC violation
+                raise RuntimeError('SMC violation in move_check')
+        else: # put others back into remainder list
+            remainder.extend(moverFeatureList)
+    if mover == []:
+        raise RuntimeError('getMover error: no mover found')
+    else:
+        return (mover,remainder)
+    
+def st_move_check(fs0):
+    newfs = [fs0[0][1:]] # remaining head1 features
+    (mover,remainder) = getMover(fs0[0][0][1],fs0[1:])
+    if remainder!=[]: # put features of other movers back into list, if any    #changed EA
+        newfs.append(remainder)
+    if mover[0]!=[]: # if this mover is movign again, put it into list too     #changed EA
+        newfs.append(mover[0]) # extend movers1 with movers2
+    return newfs
+
+# if we want just the state: dt2s
+def dtree_to_state(dt):
+    if isinstance(dt,tuple):
+        return [dt[1]]  # the state of leaf (w,fs) is [fs]; root of tree [[fs]]
+    elif dt[0]=='*':      # all other states result from feature checking
+        fs0 = dtree_to_state(dt[1])
+        fs1 = dtree_to_state(dt[2])
+        fs = st_merge_check(fs0,fs1)
+        return fs
+    elif dt[0]=='o':
+        fs0 = dtree_to_state(dt[1])
+        fs = st_move_check(fs0)
+        return fs
+
+def dtree_to_state_tree(dt):
+    if isinstance(dt,tuple):
+        return [[dt[1]]]  # the state of leaf (w,fs) is [fs]; root of tree [[fs]]
+    elif dt[0]=='*':      # all other states result from feature checking
+        t0 = dtree_to_state_tree(dt[1])
+        t1 = dtree_to_state_tree(dt[2])
+        fs = st_merge_check(t0[0],t1[0])
+        return [fs,t0,t1]
+    elif dt[0]=='o':
+        t0 = dtree_to_state_tree(dt[1])
+        fs = st_move_check(t0[0])
+        return [fs,t0]
+
+def state_tree_to_tree(st):
+    if len(st)==3: # merge
+        sfs = ','.join([' '.join([str(f) for f in fs]) for fs in st[0]])      #changed EA
+        t0 = state_tree_to_tree(st[1])         
+        t1 = state_tree_to_tree(st[2])
+        return [sfs,t0,t1]
+    elif len(st)==2: # move
+        sfs = ','.join([' '.join([str(f) for f in fs]) for fs in st[0]])       #changed EA
+        t0 = state_tree_to_tree(st[1])
+        return [sfs,t0]
+    else: # len(st)==1: # leaf
+        sfs = ','.join([' '.join([str(f) for f in fs]) for fs in st[0]])       #changed EA
+        return [sfs]
+
+#join([' '.join([btfyFeat(f[0],f[1]) for f in fs]) for fs in st[0]]) 
+
+"""
+convert derivation tree to bare tree -
+  we modify dt2s, adding the bare trees and the list of moving trees.
+"""
+def dtree_to_bare_tree(dt):
+    (state,bt,movers) = dtree_to_s_bare_tree(dt)
+    if movers != []:        #changed EA
+        raise RuntimeError('dt2bt error')
+    else:
+        return bt
+
+# remember:
+# fs[0] = head features, fs[0][0] = 1st feature of head, fs[0][0][0] = type of 1st feature
+def bt_merge_check(fs0,fs1,bt1,m):
+    if fs0[0][0].ftype == 'sel' and fs1[0][0].ftype == 'cat' and fs0[0][0].value == fs1[0][0].value:
+        newfs = [fs0[0][1:][:]] # copy remaining head1 features
+        newfs.extend(fs0[1:][:]) # add movers1
+        newfs.extend(fs1[1:][:]) # add movers2
+        if fs1[0][1:] != []: # any remaining features from head2? If so, new mover     #changed EA
+            bt1m = ('',[]) # trace
+            newfs.append(fs1[0][1:])
+            m.append((fs1[0][1:],bt1))
+        else:
+            bt1m = bt1
+        return (newfs,bt1m)
+    else:
+        raise RuntimeError('merge_check error')
+
+def bt_getMover(f,moverFeatureLists,treeList):
+    mover = []
+    remainder = []
+    remainderTrees = []
+    for fs in moverFeatureLists:
+        if fs[0][1] == f:
+            if mover == []:  # OK if we did not already find an f
+                mover = [fs[1:]] # put remainder into singleton list
+            else: # if we find 2 f's, there is an SMC violation
+                raise RuntimeError('SMC violation in move_check')
+        else:
+            remainder.extend(fs)
+    for (fs,t) in treeList:
+        if fs[0][1] == f: # return copy of moving tree
+            moverTree = t[:]
+        else: # add copy of any other trees
+            remainderTrees.append((fs,t[:]))
+    return (mover,moverTree,remainder,remainderTrees)
+    
+def bt_move_check(fs0,m):
+    newfs = [fs0[0][1:]] # remaining head1 features
+    (mover,moverTree,remainder,remainderTrees) = bt_getMover(fs0[0][0][1],fs0[1:],m)
+    if remainder!=[]: # put other mover features back into list, if any   #changed EA
+        newfs.append(remainder)
+    if mover[0]!=[]: # if this mover is moving again, put it into list too    #changed EA
+        newfs.append(mover[0]) # extend movers1 with movers2
+        mt = ('',[]) # trace
+        remainderTrees.append((mover[0],moverTree))
+    else:
+        mt = moverTree
+    return (newfs,mt,remainderTrees)
+
+def dtree_to_s_bare_tree(dt): # compute (state,bt,moving) triple
+    if isinstance(dt,tuple):
+        return ([dt[1]],dt,[])  # the state of leaf (w,fs) is [fs]; root of tree [[fs]]
+    elif dt[0]=='*':         # all other states result from feature checking
+        (fs0,bt0,m0) = dtree_to_s_bare_tree(dt[1])
+        (fs1,bt1,m1) = dtree_to_s_bare_tree(dt[2])
+        m = m0
+        m.extend(m1)
+        (fs,bt1m) = bt_merge_check(fs0,fs1,bt1,m) # may add additional mover to m
+        if isinstance(bt0,tuple):
+            bt = ['<',bt0,bt1m]
+        else:
+            bt = ['>',bt1m,bt0]
+        return (fs,bt,m)
+    elif dt[0]=='o':
+        (fs0,bt0,m0) = dt2sbt(dt[1])
+        (fs,mt,m) = bt_move_check(fs0,m0)
+        bt = ['>',mt,bt0]
+        return (fs,bt,m)
+
+def bare_tree_to_tree(bt):
+    if isinstance(bt,tuple): # leaf
+        w = ' '.join(bt[0])
+        sfs = ' '.join([str(f) for f in bt[1]])    #changed EA
+        item = '::'.join([w,sfs])
+        return item
+    elif len(bt)==3: # merge
+        t0 = bare_tree_to_tree(bt[1])
+        t1 = bare_tree_to_tree(bt[2])
+        return [bt[0],t0,t1]
+    elif len(bt)==2: # move
+        t0 = bare_tree_to_tree(bt[1])
+        return [bt[0],t0]
+    else:
+        raise RuntimeError('bt2t')
+
+"""
+convert derivation tree to X-bar tree -
+  similar to the bare tree conversion
+"""
+def dtree_to_xbar(dt):
+#   (state,xb,movers,cat,lexical,cntr) = dt2sxb(dt,0)
+    tple = dtree_to_s_xbar(dt,0)
+    xb = tple[1]
+    movers = tple[2]
+    cat = tple[3]
+    if (isinstance(cat, str)):    #added so that if the user calls x after no parse found, no error message raise - EA
+        scat = cat+'P'
+    else:
+        scat = ''
+    xb[0] = scat
+    if movers != []:     #changed EA
+        raise RuntimeError('dt2xb error')
+    else:
+        return xb
+
+# remember:
+# fs[0] = head features, fs[0][0] = 1st feature of head, fs[0][0][0] = type of 1st feature
+def xb_merge_check(fs0,fs1,xb1,m,cat,cntr):
+    if fs0[0][0].ftype == 'sel' and fs1[0][0].ftype == 'cat' and fs0[0][0].value == fs1[0][0].value:
+        newfs = [fs0[0][1:][:]] # copy remaining head1 features
+        newfs.extend(fs0[1:][:]) # add movers1
+        newfs.extend(fs1[1:][:]) # add movers2
+        if fs1[0][1:] != []: # any remaining features from head2? If so, new mover     #changed EA
+            scat = cat+'P('+str(cntr)+')'
+            cntr0 = cntr + 1
+            xb1m = ([scat],[]) # trace
+            newfs.append(fs1[0][1:])
+            xb1[0] = scat
+            m.append((fs1[0][1:],xb1))
+        else:
+            cntr0 = cntr
+            xb1m = xb1
+        return (newfs,xb1m,cntr0)
+    else:
+        raise RuntimeError('merge_check error')
+
+def xb_getMover(f,moverFeatureLists,treeList):
+    mover = []
+    remainder = []
+    remainderTrees = []
+    for fs in moverFeatureLists:
+        if fs[0][1] == f:
+            if mover == []:  # OK if we did not already find an f
+                mover = [fs[1:]] # put remainder into singleton list
+            else: # if we find 2 f's, there is an SMC violation
+                raise RuntimeError('SMC violation in move_check')
+        else:
+            remainder.extend(fs)
+    for (fs,t) in treeList:
+        if fs[0][1] == f: # return copy of moving tree
+            moverTree = t[:]
+        else: # add copy of any other trees
+            remainderTrees.append((fs,t[:]))
+    return (mover,moverTree,remainder,remainderTrees)
+    
+def xb_move_check(fs0,m):
+    newfs = [fs0[0][1:]] # remaining head1 features
+    (mover,moverTree,remainder,remainderTrees) = xb_getMover(fs0[0][0][1],fs0[1:],m)
+    if remainder!=[]: # put other mover features back into list, if any     #changed EA
+        newfs.append(remainder)
+    if mover[0]!=[]: # if this mover is moving again, put it into list too    #changed EA
+        newfs.append(mover[0]) # extend movers1 with movers2
+        mt = ('',[]) # trace
+        remainderTrees.append((mover[0],moverTree))
+    else:
+        mt = moverTree
+    return (newfs,mt,remainderTrees)
+
+def category_value(fs):
+    for f in fs:
+        if f.ftype == 'cat':
+            return f.value
+    # for (ftype,f) in fs:
+    #     if ftype == 'cat':
+    #         return f[:]
+
+def dtree_to_s_xbar(dt,cntr): # compute (state,xb,moving) triple
+    if isinstance(dt,tuple):
+        cat = category_value(dt[1])
+        return ([dt[1]],[cat,dt[0]],[],cat,True,cntr)
+    elif dt[0]=='*':         # all other states result from feature checking
+        (fs0,xb0,m0,cat0,lexical0,cntr0) = dtree_to_s_xbar(dt[1],cntr)
+        (fs1,xb1,m1,cat1,lexical1,cntr1) = dtree_to_s_xbar(dt[2],cntr0)
+        m = m0
+        m.extend(m1)
+        (fs,xb1m,cntr2) = xb_merge_check(fs0,fs1,xb1,m,cat1,cntr1) # may add additional mover to m
+        hcat = cat0+"'"
+        scat = cat1+'P'
+        if isinstance(xb1m,list): # a trace is a pair
+            xb1m[0] = scat
+        if lexical0:
+            xb = [hcat,xb0,xb1m]
+        else:
+            xb = [hcat,xb1m,xb0]
+        return (fs,xb,m,cat0,False,cntr2)
+    elif dt[0]=='o':
+        (fs0,xb0,m0,cat0,lexical0,cntr0) = dtree_to_s_xbar(dt[1],cntr)
+        (fs,mt,m) = xb_move_check(fs0,m0)
+        hcat = cat0+"'"
+        xb = [cat0,mt,xb0]
+        return (fs,xb,m,cat0,False,cntr0)
+
+
+
 
 ############################################################################################
 
@@ -1077,6 +1437,7 @@ minimal element popped at each step.
 """
 def splitDnodes(nontermsSofar,termsSoFar,dns):
     for dn in dns:
+        print(dn)
         if isinstance(dn,tuple):  # a terminal is a pair (node,terminal string list)
             termsSoFar.append(dn)
         else:
@@ -2063,8 +2424,11 @@ http://docs.python.org/library/functions.html#__import__
 if __name__ == '__main__':
     import mg0 as grammar
     results = go1(grammar.g, 'C', -0.0001, sentence="the king prefers the beer")
-    results2 = Grammar(grammar.g, 'C', -0.0001, sentence="the king prefers the beer")
+    gr = Grammar(grammar.g, 'C', -0.0001, sentence="the king prefers the beer")
+    results2 = gr.results
     for key in sorted(list(results.keys())):
         print(key)
-        print(results[key])
+        print('A:', results[key])
+        print('B:', results2[key])
+        print('eq:', results[key] == results2[key])
 
