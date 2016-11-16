@@ -1094,6 +1094,7 @@ def auto_runner(sentence, g, gA, iq, minP):
     idtree = dNodes2idtree(dns)
     dt = idtree2dtree(gA[0],idtree)
     results = {}
+    import pprint
 
     print(str(t1 - t0) + "seconds") #changed EA
     # d
@@ -1117,6 +1118,7 @@ def auto_runner(sentence, g, gA, iq, minP):
     pptree(output, bt2t(dt2bt(dt)))
     results['pb'] = output.getvalue()
     output.close()
+    pprint.pprint(bt2t(dt2bt(dt)))
     # x
     results['x'] = list2nltktree(dt2xb(dt))
     # px
@@ -1399,6 +1401,7 @@ def bt2t(bt):
         t1 = bt2t(bt[2])
         return [bt[0],t0,t1]
     elif len(bt)==2: # move
+        raise hell
         t0 = bt2t(bt[1])
         return [bt[0],t0]
     else:
@@ -1545,7 +1548,9 @@ http://docs.python.org/library/functions.html#__import__
 
 if __name__ == '__main__':
     import mg0 as grammar
-    results = go1(grammar.g, 'C', -0.0001, sentence="the king prefers the beer")
+    sentence="the king prefers the beer"
+    sentence = "which king says which queen knows which king says which wine the queen prefers"
+    results = go1(grammar.g, 'C', -0.0001, sentence=sentence)
     for key in sorted(list(results.keys())):
         print(key)
         print(results[key])
