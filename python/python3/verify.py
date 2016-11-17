@@ -1,6 +1,6 @@
 
 import mgtdbp as original
-import mgtdbpA as changed
+import mgtdbpB as changed
 import mg0 as grammar
 
 sentences = ["the king prefers the beer", "which king says which queen knows which king says which wine the queen prefers"]
