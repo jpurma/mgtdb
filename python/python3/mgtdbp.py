@@ -994,11 +994,8 @@ def parse(lex,start,minP,inpt): # initialize and begin
     heapq_mod.heapify(dq)  #modified EA
     t0 = time.time()
     dns = derive((sA,lA,tA),minP,dq)
-#    print 'dns=',dns
     t1 = time.time()
     idtree = dNodes2idtree(dns)
-#    print 'idtree =',idtree
-#    print 'calling idtree2dtree(sA,',idtree,')'
     dt = idtree2dtree(sA,idtree)
     print( str(t1 - t0) + "seconds") #changed 3.1 ERIK
     return dt
@@ -1125,7 +1122,6 @@ def auto_runner(sentence, g, gA, iq, minP):
     pptree(output, dt2xb(dt))
     results['px'] = output.getvalue()
     output.close()
-    pprint.pprint(dt2xb(dt))
     # pg
     output = io.StringIO()
     showGrammar(output, g)
@@ -1551,8 +1547,8 @@ if __name__ == '__main__':
     sentence="the king prefers the beer"
     sentence = "which king says which queen knows which king says which wine the queen prefers"
     results = go1(grammar.g, 'C', -0.0001, sentence=sentence)
-    for key in sorted(list(results.keys())):
-        print(key)
-        print(results[key])
+    #for key in sorted(list(results.keys())):
+    #    print(key)
+    #    print(results[key])
 
 

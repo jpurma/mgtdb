@@ -407,9 +407,7 @@ class Grammar:
         output = io.StringIO()
         pptree(output, XBarTree(dt).as_tree())
         results['px'] = output.getvalue()
-        print(output.getvalue())
         output.close()
-        pprint.pprint(XBarTree(dt).as_tree())
         # pg -- print grammar as items
         output = io.StringIO()
         self.show(output)
@@ -671,12 +669,16 @@ class DTree:
         return '[%r, %r]' % (self.label, self.features or self.parts)
 
     def as_tree(self):
-        if len(self.parts) == 2:
+        if len(self.parts) == 2:            
             return [self.label, self.parts[0].as_tree(), self.parts[1].as_tree()]
         elif len(self.parts) == 1:
             return [self.label, self.parts[0].as_tree()]            
         elif self.features:
-            return [self.label, [(f.ftype, f.value) for f in self.features]]
+            if self.label:
+                label = [self.label]
+            else:
+                label = []
+            return (label, [str(f) for f in self.features])
 
 
 class StateTree:
@@ -832,56 +834,7 @@ class XBarTree:
       similar to the bare tree conversion
     """
 
-# def dtree_to_xbar(dt):
-# #   (state,xb,movers,cat,lexical,cntr) = dt2sxb(dt,0)
-#     tple = dtree_to_s_xbar(dt,0)
-#     xb = tple[1]
-#     movers = tple[2]
-#     cat = tple[3]
-#     if (isinstance(cat, str)):    #added so that if the user calls x after no parse found, no error message raise - EA
-#         scat = cat+'P'
-#     else:
-#         scat = ''
-#     xb[0] = scat
-#     if movers != []:     #changed EA
-#         raise RuntimeError('dt2xb error')
-#     else:
-#         return xb
-
-# def dtree_to_s_xbar(dt,cntr): # compute (state,xb,moving) triple
-#     if isinstance(dt,tuple):
-#         cat = category_value(dt[1])
-#         return ([dt[1]],[cat,dt[0]],[],cat,True,cntr)
-##        (state,xb,movers,cat,lexical,cntr) 
-#     elif dt[0]=='*':         # all other states result from feature checking
-#         (fs0,xb0,m0,cat0,lexical0,cntr0) = dtree_to_s_xbar(dt[1],cntr)
-#         (fs1,xb1,m1,cat1,lexical1,cntr1) = dtree_to_s_xbar(dt[2],cntr0)
-#         m = m0
-#         m.extend(m1)
-#         (fs,xb1m,cntr2) = xb_merge_check(fs0,fs1,xb1,m,cat1,cntr1) # may add additional mover to m
-#         hcat = cat0+"'"
-#         scat = cat1+'P'
-#         if isinstance(xb1m,list): # a trace is a pair
-#             xb1m[0] = scat
-#         if lexical0:
-#             xb = [hcat,xb0,xb1m]
-#         else:
-#             xb = [hcat,xb1m,xb0]
-#         return (fs,xb,m,cat0,False,cntr2)
-#     elif dt[0]=='o':
-#         (fs0,xb0,m0,cat0,lexical0,cntr0) = dtree_to_s_xbar(dt[1],cntr)
-#         (fs,mt,m) = xb_move_check(fs0,m0)
-#         hcat = cat0+"'"
-#         xb = [cat0,mt,xb0]
-#         return (fs,xb,m,cat0,False,cntr0)
-
-# def category_value(fs):
-#     for f in fs:
-#         if f.ftype == 'cat':
-#             return f.value
-
-
-    def __init__(self, dtree, cntr=0):        
+    def __init__(self, dtree, cntr=0, top=True):        
         self.head_features = []
         self.movers = []
         self.label = ''
@@ -903,34 +856,16 @@ class XBarTree:
                 assert(self.category)
 
             elif dtree.label == '*':            
-                self.part0 = XBarTree(dtree.parts[0])
-                self.part1 = XBarTree(dtree.parts[1])            
+                self.part0 = XBarTree(dtree.parts[0], self.cntr, top=False)
+                self.part1 = XBarTree(dtree.parts[1], self.part0.cntr, top=False)            
                 self.moving = [] + self.part0.moving + self.part1.moving
                 self.merge_check()
             elif dtree.label == 'o':
-                self.part1 = XBarTree(dtree.parts[0])
+                self.part1 = XBarTree(dtree.parts[0], self.cntr, top=False)
+                self.cntr = self.part1.cntr
                 self.move_check()
-
-# # remember:
-# # fs[0] = head features, fs[0][0] = 1st feature of head, fs[0][0][0] = type of 1st feature
-# def xb_merge_check(fs0,fs1,xb1,m,cat,cntr):
-#     if fs0[0][0].ftype == 'sel' and fs1[0][0].ftype == 'cat' and fs0[0][0].value == fs1[0][0].value:
-#         newfs = [fs0[0][1:][:]] # copy remaining head1 features
-#         newfs.extend(fs0[1:][:]) # add movers1
-#         newfs.extend(fs1[1:][:]) # add movers2
-#         if fs1[0][1:] != []: # any remaining features from head2? If so, new mover     #changed EA
-#             scat = cat+'P('+str(cntr)+')'  <-- prepare label
-#             cntr0 = cntr + 1
-#             xb1m = ([scat],[]) # trace <-- label is used for trace
-#             newfs.append(fs1[0][1:])  <-- merged object will get part1's remainders
-#             xb1[0] = scat <-- label is used for moving element
-#             m.append((fs1[0][1:],xb1)) <-- moving -tuple gets remainder features and part1
-#         else:
-#             cntr0 = cntr
-#             xb1m = xb1
-#         return (newfs,xb1m,cntr0)
-#     else:
-#         raise RuntimeError('merge_check error')
+        if top:
+            self.label = self.category + 'P'
 
     def merge_check(self):
         headf0, *remainders0 = self.part0.head_features
@@ -938,16 +873,21 @@ class XBarTree:
         if headf0.ftype == 'sel' and headf1.ftype == 'cat' and headf0.value == headf1.value:
             self.head_features = remainders0 # copy remaining head1 features
             self.movers = self.part0.movers + self.part1.movers # add movers1 and 2
+            self.cntr = self.part1.cntr
             if remainders1:
                 self.movers.append(remainders1)
-                trace = XBarTree(None, self.part1.cntr) # trace
-                trace.label = '%sP(%s)' % (self.part1.category, self.part1.cntr)
-                self.part1.label = trace.label
-                self.cntr = self.part1.cntr + 1
+                new_label = '%sP(%s)' % (self.part1.category, self.part1.cntr)
+                trace = XBarTree(None, top=False) # trace
+                trace.category = self.part1.category
+                trace.label = new_label
+                self.part1.label = new_label
+                self.cntr += 1
                 self.moving.append((remainders1, self.part1))
                 self.part1 = trace
+            elif self.part1.lexical:
+                self.part1.category += 'P'
             else:
-                self.part1.label = '%sP' % self.part1.category
+                self.part1.label = self.part1.category + 'P'
         else:
             raise RuntimeError('merge_check error')
         self.category = self.part0.category
@@ -956,50 +896,6 @@ class XBarTree:
             temp = self.part0
             self.part0 = self.part1
             self.part1 = temp
-#         (fs,xb1m,cntr2) = xb_merge_check(fs0,fs1,xb1,m,cat1,cntr1) # may add additional mover to m
-#         hcat = cat0+"'"
-#         scat = cat1+'P'
-#         if isinstance(xb1m,list): # a trace is a pair
-#             xb1m[0] = scat
-#         if lexical0:
-#             xb = [hcat,xb0,xb1m]
-#         else:
-#             xb = [hcat,xb1m,xb0]
-#         return (fs,xb,m,cat0,False,cntr2)
-
-
-
-# def xb_getMover(f,moverFeatureLists,treeList):
-#     mover = []
-#     remainder = []
-#     remainderTrees = []
-#     for fs in moverFeatureLists:
-#         if fs[0].value == f:
-#             if mover == []:  # OK if we did not already find an f
-#                 mover = [fs[1:]] # put remainder into singleton list
-#             else: # if we find 2 f's, there is an SMC violation
-#                 raise RuntimeError('SMC violation in move_check')
-#         else:
-#             remainder.extend(fs)
-#     for (fs,t) in treeList:
-#         if fs[0].value == f: # return copy of moving tree
-#             moverTree = t[:]
-#         else: # add copy of any other trees
-#             remainderTrees.append((fs,t[:]))
-#     return (mover,moverTree,remainder,remainderTrees)
-    
-# def xb_move_check(fs0,m):
-#     newfs = [fs0[0][1:]] # remaining head1 features
-#     (mover,moverTree,remainder,remainderTrees) = xb_getMover(fs0[0][0].value,fs0[1:],m)
-#     if remainder!=[]: # put other mover features back into list, if any     #changed EA
-#         newfs.append(remainder)
-#     if mover[0]!=[]: # if this mover is moving again, put it into list too    #changed EA
-#         newfs.append(mover[0]) # extend movers1 with movers2
-#         mt = ('',[]) # trace
-#         remainderTrees.append((mover[0],moverTree))
-#     else:
-#         mt = moverTree
-#     return (newfs,mt,remainderTrees)
 
     def move_check(self):
         mover_match, *remaining = self.part1.head_features 
@@ -1029,17 +925,15 @@ class XBarTree:
         self.label = self.category + "'"
         assert(self.part0)
 
-#     elif dt[0]=='o':
-#         (fs0,xb0,m0,cat0,lexical0,cntr0) = dtree_to_s_xbar(dt[1],cntr)
-#         (fs,mt,m) = xb_move_check(fs0,m0)
-#         hcat = cat0+"'"
-#         xb = [cat0,mt,xb0]
-#         return (fs,xb,m,cat0,False,cntr0)
-
-
     def as_tree(self):
         if not (self.part0 or self.part1):
-            return [self.label]
+            if self.lexical:
+                if self.label and isinstance(self.label, str):
+                    return [self.category, [self.label]]
+                else:
+                    return [self.category, self.label]                   
+            else:
+                return ([self.label], [])
         elif self.part0 and self.part1: # merge
             return [self.label, self.part0.as_tree(), self.part1.as_tree()]
         else:
