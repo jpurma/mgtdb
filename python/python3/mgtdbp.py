@@ -1118,7 +1118,6 @@ def auto_runner(sentence, g, gA, iq, minP):
     pptree(output, bt2t(dt2bt(dt)))
     results['pb'] = output.getvalue()
     output.close()
-    pprint.pprint(bt2t(dt2bt(dt)))
     # x
     results['x'] = list2nltktree(dt2xb(dt))
     # px
@@ -1126,6 +1125,7 @@ def auto_runner(sentence, g, gA, iq, minP):
     pptree(output, dt2xb(dt))
     results['px'] = output.getvalue()
     output.close()
+    pprint.pprint(dt2xb(dt))
     # pg
     output = io.StringIO()
     showGrammar(output, g)
