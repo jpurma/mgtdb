@@ -972,6 +972,7 @@ def build_dtree_from_dnodes(parent, nodes, terminals, dtree):
             label = leaf[0][0]
         else:
             label = ''
+        print(leaf)
         features = leaf[1]
         dtree.parts.append(DTree(label=label, features=features))
         return dtree

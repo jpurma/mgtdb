@@ -208,8 +208,11 @@ class Feature:
     def __str__(self):
         return ftype_map[self.ftype] + self.value
 
+    #def __repr__(self):
+    #    return 'F(%s, %s)' % (self.ftype, self.value)
+
     def __repr__(self):
-        return 'F(%s, %s)' % (self.ftype, self.value)
+        return ftype_map[self.ftype] + self.value
 
     def __eq__(self, other):
         return self.ftype == other.ftype and self.value == other.value
@@ -241,28 +244,28 @@ class LexTreeNode:
         return 'LN(key=%r, children=%r, roots=%r)' % (self.key, self.children, self.roots)
 
 class IndexedCategory:
-    def __init__(self, head, movers, head_index, mx, dt):
+    def __init__(self, head, movers, head_path, mover_paths, dt):
         self.head = head
         self.movers = movers
-        self.head_index = head_index
-        self.mx = mx
+        self.head_path = head_path
+        self.mover_paths = mover_paths
         self.dt = dt
         self._min_index = None
         self.update_ordering()
 
     def update_ordering(self):
         """ ICs can be stored in queue if they can be ordered. Original used tuples to provide ordering, we can have an innate property _min_index for the task. It could be calculated for each comparison, but for efficiency's sake do it manually before pushing to queue. """ 
-        mini = self.head_index
-        for x in self.mx.values():
+        mini = self.head_path
+        for x in self.mover_paths.values():
             if x and x < mini:
                 mini = x
         self._min_index = mini
 
     def copy(self):
-        return IndexedCategory(self.head, self.movers.copy(), self.head_index[:], self.mx.copy(), self.dt.copy())
+        return IndexedCategory(self.head, self.movers.copy(), self.head_path[:], self.mover_paths.copy(), self.dt.copy())
 
     def __repr__(self):
-        return 'IndexedCategory(head=%r, m=%r, head_index=%r, mx=%r, dt=%r)' % (self.head, self.movers, self.head_index, self.mx, self.dt)
+        return 'IndexedCategory(head=%r, m=%r, head_path=%r, mover_paths=%r, dt=%r)' % (self.head, self.movers, self.head_path, self.mover_paths, self.dt)
 
     def __getitem__(self, key):
         return self._min_index
@@ -273,46 +276,64 @@ class IndexedCategory:
     def row_dump(self):
         print('h: ', self.head)
         print('m: ', self.movers)
-        print('hx: ', self.head_index)
-        print('mx: ', self.mx)
+        print('hx: ', self.head_path)
+        print('mover_paths: ', self.mover_paths)
         print('dt: ', self.dt)
 
 
 class DerivationTree:
-    def __init__(self, ifs, dx, mifs):
-        self.ifs = ifs
-        self.dx = dx
-        self.mifs = mifs
+    def __init__(self, features, path, moving_features):
+        self.features = features
+        self.path = path
+        self.moving_features = moving_features
 
     def copy(self):
-        return DerivationTree(self.ifs[:], self.dx[:], self.mifs.copy())
+        return DerivationTree(self.features[:], self.path[:], self.moving_features.copy())
 
     def __repr__(self):
-        return 'DerivationTree(ifs=%r, dx=%r, mifs=%r)' % (self.ifs, self.dx, self.mifs)
+        return 'DerivationTree(features=%r, path=%r, moving_features=%r)' % (self.features, self.path, self.moving_features)
 
 
 class Expansion:
-    def __init__(self, ic=None, ic1=None, words=None):
-        self.ic = ic
-        self.ic1 = ic1
+    def __init__(self, prediction=None, prediction1=None, words=None):
+        self.prediction = prediction
+        self.prediction1 = prediction1
         self.words = words or []
 
     def __repr__(self):
-        return 'Expansion(ic=%r, ic1=%r, words=%r)' % (self.ic, self.ic1, self.words)
+        return 'Expansion(prediction=%r, prediction1=%r, words=%r)' % (self.prediction, self.prediction1, self.words)
 
 
 class Derivation:
-    def __init__(self, p, inpt, iqs, dns):
+    def __init__(self, p, inpt, iqs, dnodes):
         self.probability = p
         self.input = inpt
-        self.indexed_queues = iqs
-        self.dns = dns
+        self.prediction_queue = iqs
+        self.dnodes = dnodes
 
     def __getitem__(self, key):
-        return (self.probability, self.input, self.indexed_queues, self.dns)[key]
+        return (self.probability, self.input, self.prediction_queue, self.dnodes)[key]
 
     def __lt__(self, other):
-        return (self.probability, self.input, self.indexed_queues) < (self.probability, self.input, self.indexed_queues)
+        return (self.probability, self.input, self.prediction_queue) < (self.probability, self.input, self.prediction_queue)
+
+class DerivationNode:
+    def __init__(self, path, label=None, features=None):
+        self.path = path
+        self.label = label
+        self.features = features
+
+    def __repr__(self):
+        return 'DerivationNode(path=%r, label=%r, features=%r)' % (self.path, self.label, self.features)
+
+    def __str__(self):
+        if self.label or self.features:
+            return '%s, (%s, %s)' % (str(self.path), self.label, self.features)
+        else:
+            return self.path
+
+    def __lt__(self, other):
+        return self.path < other.path
 
 class Grammar:
 
@@ -338,13 +359,13 @@ class Grammar:
         tree_size = len(feature_values)
         head = self.lex[start]
         m = {}
-        mx = {}
-        ifs = [Feature('cat', start)] # for derivation tree
-        dx = [] # for derivation tree
-        mifs = {} # for derivation tree
-        dt = DerivationTree(ifs,dx,mifs)      # for derivation tree
-        ic = IndexedCategory(head, m, [], mx, dt) # dt = dtuple for derivation tree
-        iq = [ic]
+        mover_paths = {}
+        features = [Feature('cat', start)] # for derivation tree
+        path = [] # for derivation tree
+        moving_features = {} # for derivation tree
+        dt = DerivationTree(features,path,moving_features)      # for derivation tree
+        prediction = IndexedCategory(head, m, [], mover_paths, dt) # dt = dtuple for derivation tree
+        iq = [prediction]
         heapq_mod.heapify(iq)   #modifed EA
         return self.auto_runner(sentence, iq)
 
@@ -380,14 +401,15 @@ class Grammar:
         new_iq = iq[:]
         inpt = sentence.split()
         print('inpt =' + str(inpt))  #changed EA
-        dq = [Derivation(-1.0,inpt,new_iq,[[]])]
+        dq = [Derivation(-1.0, inpt, new_iq, [DerivationNode([])])]
         heapq_mod.heapify(dq)   #changed EA
         t0 = time.time()
-        (dns, remaining_dq) = self.derive(dq)  #now returns dq 
-        #(dns, remaining_dq) = derive(gA,minP,dq)  #now returns dq 
+        (dnodes, remaining_dq) = self.derive(dq)  #now returns dq 
+        #(dnodes, remaining_dq) = derive(gA,minP,dq)  #now returns dq 
         t1 = time.time()
         print(str(t1 - t0) + "seconds") #changed EA
-        dt = dnodes_to_dtree(dns)
+        dt = DTree.dnodes_to_dtree(dnodes)
+        print(dt)
         results = {}
         # d -- derivation tree
         results['d'] = list_tree_to_nltk_tree(dt.as_list_tree())
@@ -443,16 +465,16 @@ class Grammar:
     def derive(self, dq): # modify this to return dq, so alternative parses can be found (CHECK! :) )
         p = 1.0
         while dq:
-            d = heapq_mod.heappop(dq) # (p,inpt,iq,dns)
+            d = heapq_mod.heappop(dq) 
             print('# of parses in beam=%s, p(best parse)=%s' % (len(dq)+1, -1 * d.probability))  #changed EA
-            if not (d.indexed_queues or d.input):
+            if not (d.prediction_queue or d.input):
                 print('parse found')               #changed EA  -- END OF PARSE
-                return (d.dns, dq)  # success!
-            elif d.indexed_queues:
-                ic = heapq_mod.heappop(d.indexed_queues)
-                #print(ic)
+                return (d.dnodes, dq)  # success!
+            elif d.prediction_queue:
+                prediction = heapq_mod.heappop(d.prediction_queue)
+                #print(prediction)
                 self.new_parses = []
-                self.create_expansions_from_head(ic, d.input)
+                self.create_expansions_from_head(prediction, d.input)
                 if self.new_parses:
                     new_p = d.probability / float(len(self.new_parses))
                     if new_p < self.min_p:
@@ -462,196 +484,195 @@ class Grammar:
         print('no parse found')   #changed EA     #changed EA
         return ([[],([],(['no parse'],[]))], dq) # failure! #return dq now as well (an empty list now) EA
 
-    def create_expansions_from_head(self, ic, inpt): 
+    def create_expansions_from_head(self, prediction, inpt): 
         #ic.row_dump()
-        for child in ic.head.children:       #"for sub-branch in category branch"
+        for child in prediction.head.children:       #"for sub-branch in category branch"
             cat = child.key.value
             if child.key.ftype == 'sel':
                 if child.roots: 
                     # merge a (non-moving) complement
-                    self.merge1(child, cat, ic)
+                    self.merge1(child, cat, prediction)
                     # merge a (moving) complement
-                    self.merge3(child, cat, ic)
+                    self.merge3(child, cat, prediction)
                 elif child.children: 
                     # merge a (non-moving) specifier
-                    self.merge2(child, cat, ic)
+                    self.merge2(child, cat, prediction)
                     # merge a (moving) specifier
-                    self.merge4(child, cat, ic)
+                    self.merge4(child, cat, prediction)
             elif child.key.ftype == 'pos': 
-                self.move1(child, cat, ic)
-                self.move2(child, cat, ic)
+                self.move1(child, cat, prediction)
+                self.move2(child, cat, prediction)
             else:
                 raise RuntimeError('exps')
-        for root in ic.head.roots:
+        for root in prediction.head.roots:
             #the next node is a string node
-            self.scan(root, inpt, ic)
+            self.scan(root, inpt, prediction)
 
 #ftypes = ['cat', 'sel', 'neg', 'pos']
 
     # merge a (non-moving) complement
-    def merge1(self, node, cat, ic):    
+    def merge1(self, node, cat, prediction):    
         #print('doing merge1')
-        ic1 = ic.copy() # no movers to lexical head
-        ic1.head = node
-        ic1.head_index.append(0) # new head index
-        ic1.movers = {}
-        ic1.mx = {}
-        ic1.dt.ifs.append(Feature('sel', cat)) # extend ifs
-        ic1.dt.dx.append(0) # extend dx
-        ic1.dt.mifs = {}
+        pr0 = prediction.copy() # no movers to lexical head
+        pr0.head = node
+        pr0.head_path.append(0) 
+        pr0.movers = {}
+        pr0.mover_paths = {}
+        pr0.dt.features.append(Feature('sel', cat)) 
+        pr0.dt.path.append(0) 
+        pr0.dt.moving_features = {}
 
-        ic2 = ic.copy() # movers to complement only
-        ic2.head = self.lex[cat] 
-        ic2.head_index.append(1) # new comp index
-        ic2.dt.ifs = [Feature('cat', cat)]
-        ic2.dt.dx.append(1) # extend new_dx
-        self.new_parses.append(Expansion(ic1, ic2))
+        pr1 = prediction.copy() # movers to complement only
+        pr1.head = self.lex[cat] 
+        pr1.head_path.append(1) 
+        pr1.dt.features = [Feature('cat', cat)]
+        pr1.dt.path.append(1) 
+        self.new_parses.append(Expansion(pr0, pr1))
 
     # merge a (non-moving) specifier
-    def merge2(self, node, cat, ic):
+    def merge2(self, node, cat, prediction):
         #print('doing merge2')
-        ic1 = ic.copy() # movers to head
-        ic1.head = node
-        ic1.head_index.append(1) # new head index
-        ic1.dt.ifs.append(Feature('sel', cat)) # extend ifs
-        ic1.dt.dx.append(0) # extend dx
+        pr0 = prediction.copy() # movers to head
+        pr0.head = node
+        pr0.head_path.append(1) 
+        pr0.dt.features.append(Feature('sel', cat))
+        pr0.dt.path.append(0) 
 
-        ic2 = ic.copy()
-        ic2.head = self.lex[cat]
-        ic2.movers = {}
-        ic2.head_index.append(0)
-        ic2.mx = {}
-        ic2.dt.ifs = [Feature('cat', cat)]
-        ic2.dt.dx.append(1) # extend new_dx
-        ic2.dt.mifs = {}
-        self.new_parses.append(Expansion(ic1, ic2))
+        pr1 = prediction.copy()
+        pr1.head = self.lex[cat]
+        pr1.movers = {}
+        pr1.head_path.append(0)
+        pr1.mover_paths = {}
+        pr1.dt.features = [Feature('cat', cat)]
+        pr1.dt.path.append(1) 
+        pr1.dt.moving_features = {}
+        self.new_parses.append(Expansion(pr0, pr1))
 
     # merge a (moving) complement
-    def merge3(self, node, cat, ic):      
+    def merge3(self, node, cat, prediction):      
         #print('doing merge3')
-        for nxt, m_nxt in ic.movers.items():
+        for nxt, m_nxt in prediction.movers.items():
             matching_tree = m_nxt and m_nxt.feature_in_children(cat) #check to see if term is a mover plain and simple
             if matching_tree:
-                ic1 = ic.copy()
-                ic1.head = node
-                ic1.movers = {}
-                ic1.mx = {}      
-                ic1.dt.ifs.append(Feature('sel', cat)) # extend ifs with (sel i)
-                ic1.dt.dx.append(0) # extend dx
-                ic1.dt.mifs = {}
+                pr0 = prediction.copy()
+                pr0.head = node
+                pr0.movers = {}
+                pr0.mover_paths = {}      
+                pr0.dt.features.append(Feature('sel', cat)) 
+                pr0.dt.path.append(0)
+                pr0.dt.moving_features = {}
 
-                ic2 = ic.copy() # movers passed to complement
-                ic2.head = matching_tree
-                del ic2.movers[nxt] # we used the "next" licensee, so now empty
-                ic2.head_index = ic2.mx[nxt]
-                del ic2.mx[nxt]
-                ic2.dt.ifs = ic2.dt.mifs[nxt][:] # movers to complement
-                ic2.dt.ifs.append(Feature('cat', cat)) # add (cat i) feature
-                ic2.dt.dx.append(1) # extend new_dx
-                del ic2.dt.mifs[nxt]
-                self.new_parses.append(Expansion(ic1, ic2))
+                pr1 = prediction.copy() # movers passed to complement
+                pr1.head = matching_tree
+                del pr1.movers[nxt] # we used the "next" licensee, so now empty
+                pr1.head_path = pr1.mover_paths[nxt]
+                del pr1.mover_paths[nxt]
+                pr1.dt.features = pr1.dt.moving_features[nxt][:] # movers to complement
+                pr1.dt.features.append(Feature('cat', cat)) 
+                pr1.dt.path.append(1)
+                del pr1.dt.moving_features[nxt]
+                self.new_parses.append(Expansion(pr0, pr1))
 
     # merge a (moving) specifier
-    def merge4(self, node, cat, ic):          
+    def merge4(self, node, cat, prediction):          
         #print('doing merge4')
-        for nxt, m_nxt in ic.movers.items():
+        for nxt, m_nxt in prediction.movers.items():
             matching_tree = m_nxt and m_nxt.feature_in_children(cat)
             if matching_tree:
-                ic1 = ic.copy()
-                ic1.head = node
-                del ic1.movers[nxt] # we used the "next" licensee, so now empty
-                del ic1.mx[nxt]
-                ic1.dt.ifs.append(Feature('sel', cat)) # extend ifs
-                ic1.dt.dx.append(0) # extend dx
-                del ic1.dt.mifs[nxt]
+                pr0 = prediction.copy()
+                pr0.head = node
+                del pr0.movers[nxt] # we used the "next" licensee, so now empty
+                del pr0.mover_paths[nxt]
+                pr0.dt.features.append(Feature('sel', cat)) 
+                pr0.dt.path.append(0) 
+                del pr0.dt.moving_features[nxt]
 
-                ic2 = ic.copy() # movers passed to complement
-                ic2.head = matching_tree
-                ic2.movers = {}
-                ic2.head_index = ic2.mx[nxt]
-                ic2.mx = {} 
-                ic2.dt.ifs = ic2.dt.mifs[nxt][:] # copy
-                ic2.dt.ifs.append(Feature('cat', cat))
-                ic2.dt.dx.append(1) # extend new_dx
-                ic2.dt.mifs = {}                
-                self.new_parses.append(Expansion(ic1, ic2))
+                pr1 = prediction.copy() # movers passed to complement
+                pr1.head = matching_tree
+                pr1.movers = {}
+                pr1.head_path = pr1.mover_paths[nxt]
+                pr1.mover_paths = {} 
+                pr1.dt.features = pr1.dt.moving_features[nxt][:] # copy
+                pr1.dt.features.append(Feature('cat', cat))
+                pr1.dt.path.append(1) 
+                pr1.dt.moving_features = {}                
+                self.new_parses.append(Expansion(pr0, pr1))
 
-    def move1(self, node, cat, ic):    
-        if not ic.movers.get(cat, []):  # SMC
+    def move1(self, node, cat, prediction):    
+        if cat not in prediction.movers:  # SMC
             #print('doing move1')
-            ic1 = ic.copy() 
-            ic1.head = node #node is remainder of head branch
-            ic1.movers[cat] = self.lex[cat]
-            ic1.head_index.append(1)
-            ic1.mx[cat] = ic.head_index[:]
-            ic1.mx[cat].append(0)
-            ic1.dt.ifs.append(Feature('pos', cat)) # extend ifs with (pos i)
-            ic1.dt.dx.append(0) # extend dx
-            ic1.dt.mifs[cat] = [Feature('neg', cat)] # begin new mover with (neg i)
-            self.new_parses.append(Expansion(ic1))
+            pr0 = prediction.copy() 
+            pr0.head = node #node is remainder of head branch
+            pr0.movers[cat] = self.lex[cat]
+            pr0.head_path.append(1)
+            pr0.mover_paths[cat] = prediction.head_path[:]
+            pr0.mover_paths[cat].append(0)
+            pr0.dt.features.append(Feature('pos', cat)) 
+            pr0.dt.path.append(0) 
+            pr0.dt.moving_features[cat] = [Feature('neg', cat)] # begin new mover with (neg cat)
+            self.new_parses.append(Expansion(pr0))
 
-    def move2(self, node, cat, ic):  
-        for nxt, m_nxt in ic.movers.items():
-            matching_tree = m_nxt and m_nxt.feature_in_children(cat)
+    def move2(self, node, cat, prediction):  
+        for mover_cat, mover in prediction.movers.items():
+            matching_tree = mover.feature_in_children(cat)
             if matching_tree:
                 root_f = matching_tree.key.value # value of rootLabel
-                if root_f == nxt or not ic.movers.get(root_f, []): # SMC
+                print(root_f, mover_cat)
+                if root_f == mover_cat or not prediction.movers.get(root_f, []): # SMC
                     #print('doing move2')
                     mts = matching_tree #matchingTree[1:][:]
-                    ic1 = ic.copy()
-                    ic1.head = node
-                    del ic1.movers[nxt] # we used the "next" licensee, so now empty
-                    ic1.movers[root_f] = mts
-                    ic1.mx[root_f] = ic1.mx[nxt][:]
-                    del ic1.mx[nxt]
-                    ic1.dt.mifs[root_f] = ic1.dt.mifs[nxt][:]
-                    ic1.dt.mifs[root_f].append(Feature('neg', cat)) # extend prev ifs of mover with (neg i)
-                    del ic1.dt.mifs[nxt]
-                    ic1.dt.ifs.append(Feature('pos', cat)) # extend ifs with (pos i)
-                    ic1.dt.dx.append(0)
-                    self.new_parses.append(Expansion(ic1))
+                    pr0 = prediction.copy()
+                    pr0.head = node
+                    del pr0.movers[mover_cat] # we used the "next" licensee, so now empty
+                    pr0.movers[root_f] = mts
+                    pr0.mover_paths[root_f] = pr0.mover_paths[mover_cat][:]
+                    del pr0.mover_paths[mover_cat]
+                    pr0.dt.moving_features[root_f] = pr0.dt.moving_features[mover_cat][:]
+                    pr0.dt.moving_features[root_f].append(Feature('neg', cat)) # extend prev features of mover with (neg cat)
+                    del pr0.dt.moving_features[mover_cat]
+                    pr0.dt.features.append(Feature('pos', cat)) 
+                    pr0.dt.path.append(0)
+                    self.new_parses.append(Expansion(pr0))
 
-    def scan(self, words, inpt, ic):
+    def scan(self, words, inpt, prediction):
         # this actually checks to see if word is present in given sentence
         if not any(self.new_parses) and inpt[:len(words)] == words:             
             #print('ok scan')
-            new_ic = ic.copy()
-            new_ic.head = []
-            new_ic.head_index = []
-            self.new_parses.append(Expansion(new_ic, words=words))
+            new_prediction = prediction.copy()
+            new_prediction.head = []
+            new_prediction.head_path = []
+            self.new_parses.append(Expansion(new_prediction, words=words))
 
     def insert_new_parses(self, d, new_p, dq):
         for exp in self.new_parses:
-            dns = d.dns[:]
+            dnodes = d.dnodes[:]
             # scan is a special case, identifiable by empty head
             #print(exp.ics)
-            if not exp.ic.head:
-                words = exp.words
-                ifs = exp.ic.dt.ifs
-                ifs.reverse()
-                dx = exp.ic.dt.dx
-                dns.append((dx,(words,ifs)))
-                if d.input[:len(words)] == words:
-                    remainder_input = d.input[len(words):]
+            if not exp.prediction.head:
+                label = exp.words
+                features = exp.prediction.dt.features
+                features.reverse()
+                path = exp.prediction.dt.path
+                dnode = DerivationNode(path, label, features)
+                dnodes.append(dnode)
+                if d.input[:len(label)] == label:
+                    remainder_input = d.input[len(label):]
                 else:
                     remainder_input = d.input[:]
-                new_parse = Derivation(d.probability, remainder_input, d.indexed_queues, dns)
-                heapq_mod.heappush(dq, new_parse)  #modified EA
+                new_parse = Derivation(d.probability, remainder_input, d.prediction_queue, dnodes)
             else: # put indexed categories ics onto iq with new_p
-                safe_q = d.indexed_queues[:]
-                if exp.ic:
-                    assert(isinstance(exp.ic.head, LexTreeNode))
-                    dns.append(exp.ic.dt.dx)
-                    exp.ic.update_ordering()
-                    heapq_mod.heappush(safe_q, exp.ic) 
-                if exp.ic1:
-                    assert(isinstance(exp.ic1.head, LexTreeNode))
-                    dns.append(exp.ic1.dt.dx)
-                    exp.ic1.update_ordering()
-                    heapq_mod.heappush(safe_q, exp.ic1) 
-                new_parse = Derivation(new_p, d.input, safe_q, dns)
-                heapq_mod.heappush(dq, new_parse) #modified EA
+                pred_queue = d.prediction_queue[:]
+                dnodes.append(DerivationNode(exp.prediction.dt.path))
+                exp.prediction.update_ordering()
+                heapq_mod.heappush(pred_queue, exp.prediction) 
+                if exp.prediction1:
+                    dnodes.append(DerivationNode(exp.prediction1.dt.path))
+                    exp.prediction1.update_ordering()
+                    heapq_mod.heappush(pred_queue, exp.prediction1) 
+                new_parse = Derivation(new_p, d.input, pred_queue, dnodes)
+            heapq_mod.heappush(dq, new_parse) 
 
+#### Output trees ########
 
 class DTree:
     def __init__(self, label='', features=None, parts=None):
@@ -661,6 +682,27 @@ class DTree:
 
     def __repr__(self):
         return '[%r, %r]' % (self.label, self.features or self.parts)
+
+    def build_from_dnodes(self, parent_path, dnodes, terminals):
+        if terminals and terminals[0].path == parent_path:
+            leaf = terminals.pop(0)
+            self.label = ' '.join(leaf.label)
+            self.features = leaf.features
+        elif dnodes and parent_path == dnodes[0].path[0:len(parent_path)]:
+            root = dnodes.pop(0)
+            child0 = DTree() 
+            child0.build_from_dnodes(root.path, dnodes, terminals)
+            self.parts.append(child0)
+            if dnodes and parent_path == dnodes[0].path[0:len(parent_path)]:
+                self.label = '*'  
+                root1 = dnodes.pop(0)
+                child1 = DTree()
+                child1.build_from_dnodes(root1.path, dnodes, terminals)
+                self.parts.append(child1)
+            else:
+                self.label = 'o' 
+        else:
+            raise RuntimeError('build_from_dnodes: error')
 
     def as_list_tree(self):
         if len(self.parts) == 2:            
@@ -673,6 +715,30 @@ class DTree:
             else:
                 label = []
             return (label, [str(f) for f in self.features])
+
+    @staticmethod
+    def dnodes_to_dtree(dnodes):
+        nonterms = []
+        terms = []
+        for dn in dnodes:
+            if dn.label or dn.features:  
+                terms.append(dn)
+            else:
+                nonterms.append(dn)
+        if len(nonterms) == 0:
+            raise RuntimeError('buildIDtreeFromDnodes: error')
+        else:
+            terms.sort()
+            nonterms.sort()
+            root = nonterms.pop(0)
+            dtree = DTree()
+            dtree.build_from_dnodes(root.path, nonterms, terms)
+            if terms or nonterms:  
+                print('dnodes_to_dtree error: unused derivation steps')
+                print('terms=' + str(terms))  
+                print('nonterms='+ str(nonterms))  
+            return dtree
+
 
 
 class StateTree:
@@ -871,7 +937,7 @@ class XBarTree:
             if remainders1:
                 self.movers.append(remainders1)
                 new_label = '%sP(%s)' % (self.part1.category, self.part1.cntr)
-                trace = XBarTree(None, top=False) # trace
+                trace = XBarTree(None, top=False) 
                 trace.category = self.part1.category
                 trace.label = new_label
                 self.part1.label = new_label
@@ -933,56 +999,6 @@ class XBarTree:
         else:
             raise RuntimeError('XBarTree.as_list_tree')
 
-#### Tree conversions and printing
-
-def dnodes_to_dtree(dns):
-    nonterms = []
-    terms = []
-    for dn in dns:
-        if isinstance(dn,tuple):  # a terminal is a pair (node,terminal string list)
-            terms.append(dn)
-        else:
-            nonterms.append(dn) # node is an integer list
-    if len(nonterms) == 0:
-        raise RuntimeError('buildIDtreeFromDnodes: error')
-    else:
-        terms.sort()
-        nonterms.sort()
-        root = nonterms.pop(0)
-        n = build_dtree_from_dnodes(root, nonterms, terms, DTree())
-        if len(terms)!=0 or len(nonterms)!=0:   #changed EA(<> is now only !=)
-            print('dNodes2idtree error: unused derivation steps') #changed EA
-            print('terms=' + str(terms))   #changed EA
-            print('nonterms='+ str(nonterms))  #changed EA
-        return n
-
-def build_dtree_from_dnodes(parent, nodes, terminals, dtree):
-    def child(n1,n2): # boolean: is n1 a prefix of n2? If so: n2 is a child of n1
-        return n1 == n2[0:len(n1)]
-
-    if terminals and terminals[0][0] == parent:
-        leaf = terminals.pop(0)[1]
-        if leaf[0]:
-            label = leaf[0][0]
-        else:
-            label = ''
-        features = leaf[1]
-        dtree.parts.append(DTree(label=label, features=features))
-        return dtree
-    elif nodes and child(parent, nodes[0]):
-        root = nodes.pop(0)
-        new_node = DTree() 
-        dtree.parts.append(new_node)
-        child0 = build_dtree_from_dnodes(root, nodes, terminals, new_node)
-        if nodes and child(parent, nodes[0]):
-            new_node.label = '*'  
-            root1 = nodes.pop(0)
-            child1 = build_dtree_from_dnodes(root1, nodes, terminals, new_node)
-        else:
-            new_node.label = 'o' 
-        return new_node
-    else:
-        raise RuntimeError('build_dtree_from_dnodes: error')
 
 ############################################################################################
 
@@ -990,9 +1006,11 @@ if __name__ == '__main__':
     import mg0 as grammar
     sentence = "the king prefers the beer"
     sentence = "which king says which queen knows which king says which wine the queen prefers"
+    sentence = "which queen says the king knows which wine the queen prefers"
+    #sentence = "the king says the queen prefers wine"
     gr = Grammar(grammar.g, 'C', -0.0001, sentence=sentence)
     results = gr.results
-    if False:
+    if True:
         for key in sorted(list(results.keys())):
             print(key)
             print(results[key])
