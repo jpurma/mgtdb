@@ -68,6 +68,7 @@ import heapq
 import time
 import io
 import pprint
+from collections import OrderedDict
 
 """
    We represent trees with lists, where the first element is the root,
@@ -196,8 +197,6 @@ mgxx= [ ([],[('cat', 'T'),('neg','r'),('neg','l')]),
 
 """
 ftype_map = {'cat':'', 'sel':'=', 'neg': '-', 'pos': '+'}
-ftypes = ['cat', 'sel', 'neg', 'pos']
-
 
 class Feature:
 
@@ -224,31 +223,30 @@ class LexItem:
     def __init__(self, words, features):
         self.words = words
         self.features = features
-        self.rev_features = reversed(features)
 
     def __str__(self):
         return ' '.join(self.words) + '::' + ' '.join([str(f) for f in self.features])
 
 class LexTreeNode:
-    def __init__(self, key):
-        self.key = key # these are Features 
-        self.children = []
-        self.roots = []
+    def __init__(self, feature):
+        self.feature = feature  
+        self.followed_by = [] # LexTreeNodes
+        self.terminals = [] 
 
-    def feature_in_children(self, value):
-        for child in self.children:
-            if child.key and child.key.value == value:
-                return child
+    def feature_in_followers(self, value):
+        for follower in self.followed_by:
+            if follower.feature and follower.feature.value == value:
+                return follower
 
     def __repr__(self):
-        return 'LN(key=%r, children=%r, roots=%r)' % (self.key, self.children, self.roots)
+        return 'LN(key=%r, children=%r, roots=%r)' % (self.feature, self.followed_by, self.terminals)
 
-class IndexedCategory:
-    def __init__(self, head, movers, head_path, mover_paths, dt):
+class Prediction:
+    def __init__(self, head, movers=None, head_path=None, mover_paths=None, dt=None):
         self.head = head
-        self.movers = movers
-        self.head_path = head_path
-        self.mover_paths = mover_paths
+        self.movers = movers or {} 
+        self.head_path = head_path or []
+        self.mover_paths = mover_paths or {}
         self.dt = dt
         self._min_index = None
         self.update_ordering()
@@ -262,10 +260,10 @@ class IndexedCategory:
         self._min_index = mini
 
     def copy(self):
-        return IndexedCategory(self.head, self.movers.copy(), self.head_path[:], self.mover_paths.copy(), self.dt.copy())
+        return Prediction(self.head, self.movers.copy(), self.head_path[:], self.mover_paths.copy(), self.dt.copy())
 
     def __repr__(self):
-        return 'IndexedCategory(head=%r, m=%r, head_path=%r, mover_paths=%r, dt=%r)' % (self.head, self.movers, self.head_path, self.mover_paths, self.dt)
+        return 'Prediction(head=%r, m=%r, head_path=%r, mover_paths=%r, dt=%r)' % (self.head, self.movers, self.head_path, self.mover_paths, self.dt)
 
     def __getitem__(self, key):
         return self._min_index
@@ -282,10 +280,10 @@ class IndexedCategory:
 
 
 class DerivationTree:
-    def __init__(self, features, path, moving_features):
+    def __init__(self, features, path=None, moving_features=None):
         self.features = features
-        self.path = path
-        self.moving_features = moving_features
+        self.path = path or []
+        self.moving_features = moving_features or {}
 
     def copy(self):
         return DerivationTree(self.features[:], self.path[:], self.moving_features.copy())
@@ -318,6 +316,8 @@ class Derivation:
         return (self.probability, self.input, self.prediction_queue) < (self.probability, self.input, self.prediction_queue)
 
 class DerivationNode:
+    """ DerivationNodes are constituent nodes that are represented in a queer way: 
+        instead of having relations to other nodes, they have 'path', a list of 1:s and 0:s that tells their place in a binary tree. Once there is a list of DerivationNodes, a common tree can be composed from it. """  
     def __init__(self, path, label=None, features=None):
         self.path = path
         self.label = label
@@ -335,17 +335,16 @@ class DerivationNode:
     def __lt__(self, other):
         return self.path < other.path
 
-class Grammar:
+class Parser:
 
     def __init__(self, lex_tuples, start, min_p, sentence):
-        print('****** Starting Grammar *******')
+        print('****** Starting Parser *******')
         self.d = []
         self.min_p = min_p
-        self.lex = {}
+        self.lex = OrderedDict()
         # Read LIs and features from grammar. 
-        # Also prepare integer representations of features and give each LexItem a reversed 
-        # feature list
         feature_values = set()
+        base = LexTreeNode(None)
         for words, feature_tuples in lex_tuples:
             features = []
             for ftype, value in feature_tuples:
@@ -353,21 +352,26 @@ class Grammar:
                 feature_values.add(value)
                 features.append(feat)
             self.d.append(LexItem(words, features))
-        self.build_lex_trees()
+            # Build LexTrees
+            node = base
+            for f in reversed(features):
+                found = False
+                for follower in node.followed_by:
+                    if follower.feature == f:
+                        found = True
+                        node = follower
+                        break                        
+                if not found:
+                    new_node = LexTreeNode(f)
+                    node.followed_by.append(new_node)
+                    node = new_node
+            node.terminals.append(words) 
 
-        # Preparing iq-list
-        tree_size = len(feature_values)
-        head = self.lex[start]
-        m = {}
-        mover_paths = {}
-        features = [Feature('cat', start)] # for derivation tree
-        path = [] # for derivation tree
-        moving_features = {} # for derivation tree
-        dt = DerivationTree(features,path,moving_features)      # for derivation tree
-        prediction = IndexedCategory(head, m, [], mover_paths, dt) # dt = dtuple for derivation tree
-        iq = [prediction]
-        heapq_mod.heapify(iq)   #modifed EA
-        return self.auto_runner(sentence, iq)
+        for node in base.followed_by: 
+            self.lex[node.feature.value] = node # dict for quick access to starting categories
+
+        dnodes = self.parse(start, sentence)
+        self.print_results(dnodes)
 
     def show(self, out):
         for item in self.d:
@@ -376,38 +380,35 @@ class Grammar:
     def __str__(self):
         return str(self.d)
 
-    def build_lex_trees(self):
-        base = LexTreeNode(None)
-        for lexitem in self.d:
-            node = base
-            for f in lexitem.rev_features:
-                found = False
-                for child in node.children:
-                    if child.key == f:
-                        found = True
-                        node = child
-                        break                        
-                if not found:
-                    new_node = LexTreeNode(f)
-                    node.children.append(new_node)
-                    node = new_node
-            node.roots.append(lexitem.words) 
-        self.lex_trees = base.children
-        for node in self.lex_trees:
-            self.lex[node.key.value] = node
+    def parse(self, start, sentence):
+        # Prepare prediction queue. We have a prediction that the derivation will finish 
+        # in a certain kind of category, e.g. 'C'  
+        final_features = [Feature('cat', start)] 
+        topmost_head = self.lex[start]
+        prediction = Prediction(topmost_head, dt=DerivationTree(final_features)) 
+        pred_queue = [prediction]
+        heapq_mod.heapify(pred_queue)  
 
-    def auto_runner(self, sentence, iq):
-        #gA = (sA, lA, tA) = self.feature_values, self.lex_array, self.type_array
-        new_iq = iq[:]
         inpt = sentence.split()
-        print('inpt =' + str(inpt))  #changed EA
-        dq = [Derivation(-1.0, inpt, new_iq, [DerivationNode([])])]
-        heapq_mod.heapify(dq)   #changed EA
+        print('inpt =' + str(inpt))  
+
+        # Prepare derivation queue. It gets expanded by derive.  
+        dq = [Derivation(-1.0, inpt, pred_queue, [DerivationNode([])])]
+        heapq_mod.heapify(dq)   
+
+        # The work is done by derive.
         t0 = time.time()
-        (dnodes, remaining_dq) = self.derive(dq)  #now returns dq 
-        #(dnodes, remaining_dq) = derive(gA,minP,dq)  #now returns dq 
+        success, dnodes, remaining_dq = self.derive(dq) 
         t1 = time.time()
-        print(str(t1 - t0) + "seconds") #changed EA
+        if success:
+            print('parse found') 
+        else:
+            print('no parse found')   
+        print(str(t1 - t0) + "seconds") 
+        return dnodes
+
+    def print_results(self, dnodes):
+        print(dnodes)
         dt = DTree.dnodes_to_dtree(dnodes)
         print(dt)
         results = {}
@@ -457,62 +458,73 @@ class Grammar:
     def lex_array_as_list(self):
         def as_list(node):
             if isinstance(node, LexTreeNode):
-                return [str(node.key)] + [as_list(x) for x in node.children] + node.roots
+                return [str(node.feature)] + [as_list(x) for x in node.followed_by] + node.terminals
             else:
                 return node
-        return [as_list(y) for y in self.lex_trees]
+        return [as_list(y) for y in self.lex.values()]
 
-    def derive(self, dq): # modify this to return dq, so alternative parses can be found (CHECK! :) )
+    def derive(self, derivation_queue): 
         p = 1.0
-        while dq:
-            d = heapq_mod.heappop(dq) 
-            print('# of parses in beam=%s, p(best parse)=%s' % (len(dq)+1, -1 * d.probability))  #changed EA
+        while derivation_queue:
+            d = heapq_mod.heappop(derivation_queue) 
+            print('# of parses in beam=%s, p(best parse)=%s' % (len(derivation_queue) + 1, -1 * d.probability))  
             if not (d.prediction_queue or d.input):
-                print('parse found')               #changed EA  -- END OF PARSE
-                return (d.dnodes, dq)  # success!
+                return True, d.dnodes, derivation_queue # success 
             elif d.prediction_queue:
                 prediction = heapq_mod.heappop(d.prediction_queue)
-                #print(prediction)
                 self.new_parses = []
                 self.create_expansions_from_head(prediction, d.input)
                 if self.new_parses:
-                    new_p = d.probability / float(len(self.new_parses))
+                    new_p = d.probability / len(self.new_parses)
                     if new_p < self.min_p:
-                        self.insert_new_parses(d, new_p, dq)
+                        self.insert_new_parses(d, new_p, derivation_queue)
                     else:
-                        print('improbable parses discarded')     #changed EA
-        print('no parse found')   #changed EA     #changed EA
-        return ([[],([],(['no parse'],[]))], dq) # failure! #return dq now as well (an empty list now) EA
+                        print('improbable parses discarded')  
+        return False, d.dnodes, derivation_queue # fail
 
     def create_expansions_from_head(self, prediction, inpt): 
-        #ic.row_dump()
-        for child in prediction.head.children:       #"for sub-branch in category branch"
-            cat = child.key.value
-            if child.key.ftype == 'sel':
-                if child.roots: 
+        """ Expand possibilities. If we assume current {prediction}, what are the operations that
+         could have lead into it? Prediction has features we know about, and those fix its place in LexTree. The next generation of nodes, {followers}, in LexTree are those that have these and additional features and for each we make a prediction where the follower node got there because of merge or move with something else. 
+         All predictions get written into self.new_parses
+         """   
+
+        for follower in prediction.head.followed_by:       
+            if follower.feature.ftype == 'sel':
+                if follower.terminals: 
                     # merge a (non-moving) complement
-                    self.merge1(child, cat, prediction)
+                    self.merge1(follower, prediction)
                     # merge a (moving) complement
-                    self.merge3(child, cat, prediction)
-                elif child.children: 
+                    self.merge3(follower, prediction)
+                elif follower.followed_by: 
                     # merge a (non-moving) specifier
-                    self.merge2(child, cat, prediction)
+                    self.merge2(follower, prediction)
                     # merge a (moving) specifier
-                    self.merge4(child, cat, prediction)
-            elif child.key.ftype == 'pos': 
-                self.move1(child, cat, prediction)
-                self.move2(child, cat, prediction)
+                    self.merge4(follower, prediction)
+            elif follower.feature.ftype == 'pos': 
+                self.move1(follower, prediction)
+                self.move2(follower, prediction)
             else:
                 raise RuntimeError('exps')
-        for root in prediction.head.roots:
+        for terminal in prediction.head.terminals:
             #the next node is a string node
-            self.scan(root, inpt, prediction)
+            self.scan(terminal, inpt, prediction)
 
 #ftypes = ['cat', 'sel', 'neg', 'pos']
 
+    # These operations reverse familiar minimalist operations: external merges, moves and select. 
+    # They create predictions of possible child nodes that could have resulted in current head.
+    # Predictions are packed into Expansions, and after all Expansions for this head are created, 
+    # the good ones are inserted to parse queue by insert_new_parses.  
     # merge a (non-moving) complement
-    def merge1(self, node, cat, prediction):    
+    def merge1(self, node, prediction):    
+        """ This reverses a situation when a new element (pr0) is external-merged to existing head (pr1) as a complement. 
+        Predictions are copies of the given parent prediction and modify it slightly, so that the
+        parent prediction is what would result if the two predictions are merged.
+        :param node: hypothetical node that could lead to given {prediction}  
+        :param prediction: the known result of hypothetical merge
+        """
         #print('doing merge1')
+        cat = node.feature.value
         pr0 = prediction.copy() # no movers to lexical head
         pr0.head = node
         pr0.head_path.append(0) 
@@ -523,15 +535,22 @@ class Grammar:
         pr0.dt.moving_features = {}
 
         pr1 = prediction.copy() # movers to complement only
-        pr1.head = self.lex[cat] 
+        pr1.head = self.lex[cat] # head can be any LI in this category 
         pr1.head_path.append(1) 
         pr1.dt.features = [Feature('cat', cat)]
         pr1.dt.path.append(1) 
         self.new_parses.append(Expansion(pr0, pr1))
 
     # merge a (non-moving) specifier
-    def merge2(self, node, cat, prediction):
+    def merge2(self, node, prediction):
+        """ This reverses a situation when a new element (pr0) is external-merged to existing head (pr1) as a specifier. 
+        Predictions are copies of the given parent prediction and modify it slightly, so that the
+        parent prediction is what would result if the two predictions are merged.
+        :param node: hypothetical node that could lead to given {prediction}  
+        :param prediction: the known result of hypothetical merge
+        """
         #print('doing merge2')
+        cat = node.feature.value
         pr0 = prediction.copy() # movers to head
         pr0.head = node
         pr0.head_path.append(1) 
@@ -549,10 +568,17 @@ class Grammar:
         self.new_parses.append(Expansion(pr0, pr1))
 
     # merge a (moving) complement
-    def merge3(self, node, cat, prediction):      
+    def merge3(self, node, prediction):      
+        """ This reverses a situation when a moving element (pr0) is internal-merged to existing head (pr1) as a complement. 
+        Predictions are copies of the given parent prediction and modify it slightly, so that the
+        parent prediction is what would result if the two predictions are merged.
+        :param node: hypothetical node that could lead to given {prediction}  
+        :param prediction: the known result of hypothetical merge
+        """
         #print('doing merge3')
+        cat = node.feature.value
         for nxt, m_nxt in prediction.movers.items():
-            matching_tree = m_nxt and m_nxt.feature_in_children(cat) #check to see if term is a mover plain and simple
+            matching_tree = m_nxt and m_nxt.feature_in_followers(cat) #check to see if term is a mover plain and simple
             if matching_tree:
                 pr0 = prediction.copy()
                 pr0.head = node
@@ -574,10 +600,11 @@ class Grammar:
                 self.new_parses.append(Expansion(pr0, pr1))
 
     # merge a (moving) specifier
-    def merge4(self, node, cat, prediction):          
+    def merge4(self, node, prediction):          
         #print('doing merge4')
+        cat = node.feature.value
         for nxt, m_nxt in prediction.movers.items():
-            matching_tree = m_nxt and m_nxt.feature_in_children(cat)
+            matching_tree = m_nxt and m_nxt.feature_in_followers(cat)
             if matching_tree:
                 pr0 = prediction.copy()
                 pr0.head = node
@@ -598,7 +625,8 @@ class Grammar:
                 pr1.dt.moving_features = {}                
                 self.new_parses.append(Expansion(pr0, pr1))
 
-    def move1(self, node, cat, prediction):    
+    def move1(self, node, prediction):    
+        cat = node.feature.value
         if cat not in prediction.movers:  # SMC
             #print('doing move1')
             pr0 = prediction.copy() 
@@ -612,11 +640,12 @@ class Grammar:
             pr0.dt.moving_features[cat] = [Feature('neg', cat)] # begin new mover with (neg cat)
             self.new_parses.append(Expansion(pr0))
 
-    def move2(self, node, cat, prediction):  
+    def move2(self, node, prediction):  
+        cat = node.feature.value
         for mover_cat, mover in prediction.movers.items():
-            matching_tree = mover.feature_in_children(cat)
+            matching_tree = mover.feature_in_followers(cat)
             if matching_tree:
-                root_f = matching_tree.key.value # value of rootLabel
+                root_f = matching_tree.feature.value # value of rootLabel
                 print(root_f, mover_cat)
                 if root_f == mover_cat or not prediction.movers.get(root_f, []): # SMC
                     #print('doing move2')
@@ -675,6 +704,7 @@ class Grammar:
 #### Output trees ########
 
 class DTree:
+    """ Basic constituent tree, base for other kinds of trees. """
     def __init__(self, label='', features=None, parts=None):
         self.label = label or []
         self.features = features or []
@@ -746,12 +776,12 @@ class StateTree:
     convert derivation tree to state tree
     """
     def __init__(self, dtree):        
-        self.head_features = []
+        self.features = []
         self.movers = []
         self.part0 = None
         self.part1 = None
         if dtree.features:
-            self.head_features = dtree.features
+            self.features = dtree.features
         elif dtree.label == '*':
             self.part0 = StateTree(dtree.parts[0])
             self.part1 = StateTree(dtree.parts[1])
@@ -761,10 +791,10 @@ class StateTree:
             self.move_check()
 
     def merge_check(self):
-        headf0, *remainders0 = self.part0.head_features
-        headf1, *remainders1 = self.part1.head_features
+        headf0, *remainders0 = self.part0.features
+        headf1, *remainders1 = self.part1.features
         if headf0.ftype == 'sel' and headf1.ftype == 'cat' and headf0.value == headf1.value:
-            self.head_features = remainders0 
+            self.features = remainders0 
             if remainders1:
                 self.movers = [remainders1]
             self.movers += self.part0.movers
@@ -773,8 +803,8 @@ class StateTree:
             raise RuntimeError('merge_check error')
 
     def move_check(self):
-        mover_match, *remaining = self.part0.head_features 
-        self.head_features = remaining
+        mover_match, *remaining = self.part0.features 
+        self.features = remaining
         found = False
         mover = []
         self.movers = []
@@ -792,8 +822,8 @@ class StateTree:
 
     def as_list_tree(self):
         fss = []
-        if self.head_features:
-            fss.append(self.head_features)
+        if self.features:
+            fss.append(self.features)
         fss += self.movers
         sfs = ','.join([' '.join([str(f) for f in fs]) for fs in fss])
         if self.part0 and self.part1: # merge
@@ -809,7 +839,7 @@ class BareTree:
     convert derivation tree to bare tree
     """
     def __init__(self, dtree):        
-        self.head_features = []
+        self.features = []
         self.movers = []
         self.moving = []
         self.label = ''
@@ -818,7 +848,7 @@ class BareTree:
         if dtree:
             self.label = dtree.label
             if dtree.features:
-                self.head_features = dtree.features
+                self.features = dtree.features
             elif dtree.label == '*':            
                 self.part0 = BareTree(dtree.parts[0])
                 self.part1 = BareTree(dtree.parts[1])            
@@ -829,10 +859,10 @@ class BareTree:
                 self.move_check()
 
     def merge_check(self):
-        headf0, *remainders0 = self.part0.head_features
-        headf1, *remainders1 = self.part1.head_features
+        headf0, *remainders0 = self.part0.features
+        headf1, *remainders1 = self.part1.features
         if headf0.ftype == 'sel' and headf1.ftype == 'cat' and headf0.value == headf1.value:
-            self.head_features = remainders0 
+            self.features = remainders0 
             self.movers = self.part0.movers + self.part1.movers
             if remainders1:
                 self.movers.append(remainders1)
@@ -849,8 +879,8 @@ class BareTree:
             self.part1 = temp
 
     def move_check(self):
-        mover_match, *remaining = self.part1.head_features 
-        self.head_features = remaining
+        mover_match, *remaining = self.part1.features 
+        self.features = remaining
         found = False
         mover = []
         self.movers = []
@@ -881,7 +911,7 @@ class BareTree:
                 w = ' '.join(self.label)
             else:
                 w = self.label
-            return '%s::%s' % (w, ' '.join([str(f) for f in self.head_features]))
+            return '%s::%s' % (w, ' '.join([str(f) for f in self.features]))
         elif self.part0 and self.part1: # merge
             return [self.label, self.part0.as_list_tree(), self.part1.as_list_tree()]
         else:
@@ -895,7 +925,7 @@ class XBarTree:
     """
 
     def __init__(self, dtree, cntr=0, top=True):        
-        self.head_features = []
+        self.features = []
         self.movers = []
         self.label = ''
         self.part0 = None
@@ -907,7 +937,7 @@ class XBarTree:
         if dtree:
             self.label = dtree.label
             if dtree.features:
-                self.head_features = dtree.features
+                self.features = dtree.features
                 self.lexical = True
                 for f in dtree.features:
                     if f.ftype == 'cat':
@@ -928,10 +958,10 @@ class XBarTree:
             self.label = self.category + 'P'
 
     def merge_check(self):
-        headf0, *remainders0 = self.part0.head_features
-        headf1, *remainders1 = self.part1.head_features
+        headf0, *remainders0 = self.part0.features
+        headf1, *remainders1 = self.part1.features
         if headf0.ftype == 'sel' and headf1.ftype == 'cat' and headf0.value == headf1.value:
-            self.head_features = remainders0 # copy remaining head1 features
+            self.features = remainders0 # copy remaining head1 features
             self.movers = self.part0.movers + self.part1.movers # add movers1 and 2
             self.cntr = self.part1.cntr
             if remainders1:
@@ -958,8 +988,8 @@ class XBarTree:
             self.part1 = temp
 
     def move_check(self):
-        mover_match, *remaining = self.part1.head_features 
-        self.head_features = remaining
+        mover_match, *remaining = self.part1.features 
+        self.features = remaining
         found = False
         mover = []
         self.movers = []
@@ -1008,7 +1038,7 @@ if __name__ == '__main__':
     sentence = "which king says which queen knows which king says which wine the queen prefers"
     sentence = "which queen says the king knows which wine the queen prefers"
     #sentence = "the king says the queen prefers wine"
-    gr = Grammar(grammar.g, 'C', -0.0001, sentence=sentence)
+    gr = Parser(grammar.g, 'C', -0.0001, sentence=sentence)
     results = gr.results
     if True:
         for key in sorted(list(results.keys())):
