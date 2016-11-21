@@ -1,18 +1,19 @@
 """
-file: mgtdbpB.py
+file: mgtdbpC.py
       minimalist grammar top-down beam parser, refactored from E. Stabler's original.
 
    This is part of effort to make an output-equivalent mgtdbp that can be used as a Kataja plugin.
    The code aims for readability and not efficiency, so most of the parameter passings with complex
    lists are turned into objects where necessary parameters can be get by their name and not by their index in ad-hoc lists or tuples.  
 
+   mgtdbpA -- Turned most of the complex list parameters for functions to class instances 
+   mgtdbpB -- More informative variable names and neater conversion to output trees
+   mgtdbpC -- Removed heapq_mod -- now the whole thing is faster, as there is less implicit sorting and new parses are inserted close to their final resting place.   
+
+
    Refactoring by Jukka Purma                                      || 11/21/16 
    mgtdbp-dev Modified for py3.1 compatibility by: Erik V Arrieta. || Last modified: 9/15/12
    mgtdbp-dev by Edward P. Stabler
-
-   mgtdbpA -- Turned most of the complex list parameters for functions to class instances 
-   mgtdbpB -- More informative variable names and neater conversion to output trees
-
    
 Comments welcome: jukka.purma--at--gmail.com
 """
@@ -21,7 +22,6 @@ from nltktreeport import (TreeView, Tree, CanvasWidget, TextWidget,
                 AbstractContainerWidget, BoxWidget, OvalWidget, ParenWidget,
                 ScrollWatcherWidget)    
 
-import heapq_mod 
 import time
 import io
 import pprint
@@ -140,8 +140,6 @@ class LexTreeNode:
     def nonterminal_with_feature(self, value):
         for nonterminal in self.nonterminals:
             if nonterminal.feature and nonterminal.feature.value == value:
-                assert(nonterminal.feature.ftype == 'cat')
-                print('feature in nonterminals, type: ', nonterminal.feature.ftype)
                 return nonterminal
 
     def __repr__(self):
@@ -304,14 +302,12 @@ class Parser:
         topmost_head = self.lex[start]
         prediction = Prediction(topmost_head, dt=DerivationTree(final_features)) 
         pred_queue = [prediction]
-        heapq_mod.heapify(pred_queue)  
 
         inpt = sentence.split()
         print('inpt =' + str(inpt))  
 
         # Prepare derivation queue. It gets expanded by derive.  
         dq = [Derivation(-1.0, inpt, pred_queue, [DerivationNode([])])]
-        heapq_mod.heapify(dq)   
 
         # The work is done by derive.
         t0 = time.time()
@@ -381,12 +377,12 @@ class Parser:
     def derive(self, derivation_queue): 
         p = 1.0
         while derivation_queue:
-            d = heapq_mod.heappop(derivation_queue) 
+            d = derivation_queue.pop(0) 
             print('# of parses in beam=%s, p(best parse)=%s' % (len(derivation_queue) + 1, -1 * d.probability))  
             if not (d.prediction_queue or d.input):
                 return True, d.dnodes, derivation_queue # success 
             elif d.prediction_queue:
-                prediction = heapq_mod.heappop(d.prediction_queue)
+                prediction = d.prediction_queue.pop(0)
                 self.new_parses = []
                 self.create_expansions_from_head(prediction, d.input)
                 if self.new_parses:
@@ -438,8 +434,8 @@ class Parser:
         :param node: hypothetical node that could lead to given {prediction}  
         :param prediction: the known result of hypothetical merge
         """
-        print('doing merge1')
-        print(node)
+        #print('doing merge1')
+        #print(node)
         category = node.feature.value
         pr0 = prediction.copy() # no movers to lexical head
         pr0.head = node # one part of the puzzle is given, the other part is deduced from this 
@@ -466,8 +462,8 @@ class Parser:
         :param node: hypothetical node that could lead to given {prediction}  
         :param prediction: the known result of hypothetical merge
         """
-        print('doing merge2')
-        print(node)
+        #print('doing merge2')
+        #print(node)
         cat = node.feature.value
         pr0 = prediction.copy() # movers to head
         pr0.head = node
@@ -498,8 +494,8 @@ class Parser:
         for mover_cat, mover in prediction.movers.items(): # look into movers
             matching_tree = mover.nonterminal_with_feature(cat) # matching tree is a child of mover 
             if matching_tree:
-                print('doing merge3')
-                print(node)
+                #print('doing merge3')
+                #print(node)
                 # pr0 is prediction about {node}. It is a simple terminal that selects for 
                 pr0 = prediction.copy()
                 pr0.head = node
@@ -530,8 +526,8 @@ class Parser:
         :param node: hypothetical node that could lead to given {prediction}  
         :param prediction: the known result of hypothetical merge
         """
-        print('doing merge4')
-        print(node)
+        #print('doing merge4')
+        #print(node)
         cat = node.feature.value
         for nxt, m_nxt in prediction.movers.items():
             matching_tree = m_nxt.nonterminal_with_feature(cat)
@@ -560,8 +556,8 @@ class Parser:
         cat = node.feature.value
         if cat not in prediction.movers:  # SMC
             #print('doing move1')
-            print('doing move1')
-            print(node)
+            #print('doing move1')
+            #print(node)
             
             pr0 = prediction.copy() 
             pr0.head = node #node is remainder of head branch
@@ -630,13 +626,14 @@ class Parser:
                 pred_queue = d.prediction_queue[:]
                 dnodes.append(DerivationNode(exp.prediction.dt.path))
                 exp.prediction.update_ordering()
-                heapq_mod.heappush(pred_queue, exp.prediction) 
+                pred_queue.append(exp.prediction) 
                 if exp.prediction1:
                     dnodes.append(DerivationNode(exp.prediction1.dt.path))
                     exp.prediction1.update_ordering()
-                    heapq_mod.heappush(pred_queue, exp.prediction1) 
-                new_parse = Derivation(new_p, d.input, pred_queue, dnodes)
-            heapq_mod.heappush(dq, new_parse) 
+                    pred_queue.append(exp.prediction1) 
+                new_parse = Derivation(new_p, d.input, sorted(pred_queue), dnodes)
+            dq.insert(0, new_parse)
+        dq.sort()
 
 #### Output trees ########
 
@@ -977,6 +974,7 @@ if __name__ == '__main__':
         "which wine the queen prefers",
         "which king says which queen knows which king says which wine the queen prefers"
     ]
+    sentences = ["which king says which queen knows which king says which wine the queen prefers"]
     #sentences = ["which wine the queen prefers"]
     t = time.time()
     for s in sentences:

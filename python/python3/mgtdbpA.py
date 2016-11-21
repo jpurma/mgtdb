@@ -1,63 +1,21 @@
 """
-file: mgtdbp-dev.py
-      minimalist grammar top-down beam parser, development version, port for
-      python 3.1.
+file: mgtdbpA.py
+      minimalist grammar top-down beam parser, refactored from E. Stabler's original.
 
-   (JP: This is part of effort to make a functionally equivalent but easier to read version of mgtdbp as a Kataja plugin. 
-   )
+   This is part of effort to make an output-equivalent mgtdbp that can be used as a Kataja plugin.
+   The code aims for readability and not efficiency, so most of the parameter passings with complex
+   lists are turned into objects where necessary parameters can be get by their name and not by their index in ad-hoc lists or tuples.  
 
-   This is a working, development version, with print routines and examples.
+   mgtdbpA -- Turned most of the complex list parameters for functions to class instances 
 
-   Using the included packages derived of NLTK (which officially is supported only
-   for Python 2.7) in the file nltktreeport.py, and the heapq_mod.py file as well,
-   you can start the read-parse loop by typing in the terminal window
-   (assumming your system defaults on 3.1):
+
+   Refactoring by Jukka Purma                                      || 11/21/16 
+   mgtdbp-dev Modified for py3.1 compatibility by: Erik V Arrieta. || Last modified: 9/15/12
+   mgtdbp-dev by Edward P. Stabler
    
-            python mgtdbp-dev.py [grammar] [startCategory] [minimumProbability]
-            
-   For example:
-            python mgtdbp-dev.py mg0 C 0.0001
-            
-   (To get line mode editing, I start the loop with: rlwrap python mgtdbp-dev.py)
-   The loop is started by the command at the bottom of this file.
-   Python will prompt you for a sentence to parse with the grammar specified in that line.
-   If the grammar is mg0, for example, you could type one of:
-            the king prefers the beer
-            which queen says the king knows which wine the queen prefers
-   Then you will be given a prompt to which you can type
-            h
-   to get a list of the options.
-
-   This file extends mgtdb-dev.py to a parser, by keeping a tree in each partial analysis.
-   Note that, although this is a TD parser, derivation nodes are not expanded left-to-right,
-     so we record their positions with indices (similar to indexing of predicted cats).
-     To each indexed category (iCat) we add its own dtree node index,
-        and we also add a list of the features checked in its own projection so far.
-     To each derivation (der) we add its list of indexed category dtree node indices.
-     In each step of the derivation, we extend the parents node index,
-        putting the results into the derivation list, and in the respective children.
-
-   So each indexed category ic = (i,c,dt) where dt is a "dtuple", that is:
-       (Fs checked so far, index of current node, array of Fs moving elements).
-   Here, dtuples are never checked during the parse, but they could be used to influence
-   probability assignments at each step.
-
-   For the moment, we compute just the most probable parse,
-        using a uniform distribution at each choice point,
-        returning the derivation (as a "dnode list", or else error,
-        instead of just true or false as the recognizer does.
-   TODO: implement more sophisticated pruning rule (cf Roark) and more sophisticated
-        determination of which trees should be returned.
-
-   * For cats that lack subtrees in lex, tA is not set. This does not matter,
-     but we could probably get rid of tA altogether.
-   * sA sets all features, but lA only needs non-empty lexTrees.
-   * We might speed things up by numbering all subtrees of the lexArray,
-     and using int list arrays to encode the whole lexTree.
-
-Comments welcome: stabler@ucla.edu
-Modified for py3.1 compatibility by: Erik V Arrieta. || Last modified: 9/15/12
+Comments welcome: jukka.purma--at--gmail.com
 """
+
 import sys
 from nltktreeport import (TreeView, Tree, CanvasWidget, TextWidget,
                 AbstractContainerWidget, BoxWidget, OvalWidget, ParenWidget,
