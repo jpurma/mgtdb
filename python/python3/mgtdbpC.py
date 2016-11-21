@@ -105,19 +105,6 @@ class Feature:
         elif self.ftype == 'pos':
             return '+' + self.value
 
-    #def __repr__(self):
-    #    return 'F(%s, %s)' % (self.ftype, self.value)
-
-    def __repr__(self):
-        if ftype == 'cat':
-            return self.value
-        elif ftype == 'sel':
-            return '=' + self.value
-        elif ftype == 'neg':
-            return '-' + self.value
-        elif ftype == 'pos':
-            return '+' + self.value
-
     def __eq__(self, other):
         return self.ftype == other.ftype and self.value == other.value
 
@@ -134,20 +121,20 @@ class LexItem:
 class LexTreeNode:    
     def __init__(self, feature):
         self.feature = feature  
-        self.nonterminals = [] # LexTreeNodes
+        self.subtrees = [] # LexTreeNodes
         self.terminals = [] 
 
-    def nonterminal_with_feature(self, value):
-        for nonterminal in self.nonterminals:
-            if nonterminal.feature and nonterminal.feature.value == value:
-                return nonterminal
+    def subtree_with_feature(self, value):
+        for subtree in self.subtrees:
+            if subtree.feature and subtree.feature.value == value:
+                return subtree
 
     def __repr__(self):
-        return 'LN(key=%r, children=%r, roots=%r)' % (self.feature, self.nonterminals, self.terminals)
+        return 'LN(key=%r, children=%r, roots=%r)' % (self.feature, self.subtrees, self.terminals)
 
     def __str__(self):
-        if self.nonterminals:
-            return '[%s, [%s]]' % (self.feature, ', '.join([str(x) for x in self.nonterminals]))
+        if self.subtrees:
+            return '[%s, [%s]]' % (self.feature, ', '.join([str(x) for x in self.subtrees]))
         else:
             return '[%s, %s]' % (self.feature, self.terminals)
 
@@ -223,7 +210,7 @@ class Derivation:
         return (self.probability, self.input, self.prediction_queue, self.dnodes)[key]
 
     def __lt__(self, other):
-        return (self.probability, self.input, self.prediction_queue) < (self.probability, self.input, self.prediction_queue)
+        return (self.probability, self.input, self.prediction_queue) < (other.probability, other.input, other.prediction_queue)
 
 class DerivationNode:
     """ DerivationNodes are constituent nodes that are represented in a queer way: 
@@ -267,18 +254,18 @@ class Parser:
             node = base
             for f in reversed(features):
                 found = False
-                for nonterminal in node.nonterminals:
-                    if nonterminal.feature == f:
+                for subtree in node.subtrees:
+                    if subtree.feature == f:
                         found = True
-                        node = nonterminal
+                        node = subtree
                         break                        
                 if not found:
                     new_node = LexTreeNode(f)
-                    node.nonterminals.append(new_node)
+                    node.subtrees.append(new_node)
                     node = new_node
             node.terminals.append(words) 
 
-        for node in base.nonterminals: 
+        for node in base.subtrees: 
             self.lex[node.feature.value] = node # dict for quick access to starting categories
 
         success, dnodes = self.parse(start, sentence)
@@ -369,7 +356,7 @@ class Parser:
     def lex_array_as_list(self):
         def as_list(node):
             if isinstance(node, LexTreeNode):
-                return [str(node.feature)] + [as_list(x) for x in node.nonterminals] + node.terminals
+                return [str(node.feature)] + [as_list(x) for x in node.subtrees] + node.terminals
             else:
                 return node
         return [as_list(y) for y in self.lex.values()]
@@ -395,19 +382,19 @@ class Parser:
 
     def create_expansions_from_head(self, prediction, inpt): 
         """ Expand possibilities. If we assume current {prediction}, what are the operations that
-         could have lead into it? Prediction has features we know about, and those fix its place in LexTree. The next generation of nodes, {nonterminals}, in LexTree are those that have these and additional features and for each we make a prediction where the nonterminal node got there because of merge or move with something else. 
+         could have lead into it? Prediction has features we know about, and those fix its place in LexTree. The next generation of nodes, {subtrees}, in LexTree are those that have these and additional features and for each we make a prediction where the subtree node got there because of merge or move with something else. 
          All predictions get written into self.new_parses
          """   
 
         #e.g. if current head is C, nodes are =V, -wh 
-        for node in prediction.head.nonterminals:       
+        for node in prediction.head.subtrees:       
             if node.feature.ftype == 'sel':
                 if node.terminals: 
                     # merge a (non-moving) complement
                     self.merge1(node, prediction)
                     # merge a (moving) complement
                     self.merge3(node, prediction)
-                elif node.nonterminals: 
+                elif node.subtrees: 
                     # merge a (non-moving) specifier
                     self.merge2(node, prediction)
                     # merge a (moving) specifier
@@ -417,9 +404,17 @@ class Parser:
                 self.move2(node, prediction)
             else:
                 raise RuntimeError('exps')
-        for terminal in prediction.head.terminals:
-            #the next node is a string node
-            self.scan(terminal, inpt, prediction)
+        if not self.new_parses:
+            for terminal in prediction.head.terminals:
+                # scan -operation
+                if inpt[:len(terminal)] == terminal:             
+                    #print('doing scan:', terminal)
+                    new_prediction = prediction.copy()
+                    new_prediction.head = []
+                    new_prediction.head_path = []
+                    self.new_parses.append(Expansion(new_prediction, words=terminal))
+                    break
+
 
     # These operations reverse familiar minimalist operations: external merges, moves and select. 
     # They create predictions of possible child nodes that could have resulted in current head.
@@ -492,7 +487,7 @@ class Parser:
         """
         cat = node.feature.value
         for mover_cat, mover in prediction.movers.items(): # look into movers
-            matching_tree = mover.nonterminal_with_feature(cat) # matching tree is a child of mover 
+            matching_tree = mover.subtree_with_feature(cat) # matching tree is a child of mover 
             if matching_tree:
                 #print('doing merge3')
                 #print(node)
@@ -526,12 +521,12 @@ class Parser:
         :param node: hypothetical node that could lead to given {prediction}  
         :param prediction: the known result of hypothetical merge
         """
-        #print('doing merge4')
-        #print(node)
         cat = node.feature.value
         for nxt, m_nxt in prediction.movers.items():
-            matching_tree = m_nxt.nonterminal_with_feature(cat)
+            matching_tree = m_nxt.subtree_with_feature(cat)
             if matching_tree:
+                #print('doing merge4')
+                #print(node)
                 # pr0 doesn't have certain movers that higher prediction has
                 pr0 = prediction.copy()
                 pr0.head = node
@@ -556,7 +551,6 @@ class Parser:
         cat = node.feature.value
         if cat not in prediction.movers:  # SMC
             #print('doing move1')
-            #print('doing move1')
             #print(node)
             
             pr0 = prediction.copy() 
@@ -573,7 +567,7 @@ class Parser:
     def move2(self, node, prediction):  
         cat = node.feature.value
         for mover_cat, mover in prediction.movers.items(): # <-- look into movers
-            matching_tree = mover.nonterminal_with_feature(cat) # ... for category shared with prediction
+            matching_tree = mover.subtree_with_feature(cat) # ... for category shared with prediction
             if matching_tree:
                 root_f = matching_tree.feature.value # value of rootLabel
                 assert(root_f == cat)
@@ -595,15 +589,6 @@ class Parser:
                     pr0.dt.features.append(Feature('pos', cat)) 
                     pr0.dt.path.append(0)
                     self.new_parses.append(Expansion(pr0))
-
-    def scan(self, words, inpt, prediction):
-        # this actually checks to see if word is present in given sentence
-        if not any(self.new_parses) and inpt[:len(words)] == words:             
-            #print('ok scan')
-            new_prediction = prediction.copy()
-            new_prediction.head = []
-            new_prediction.head_path = []
-            self.new_parses.append(Expansion(new_prediction, words=words))
 
     def insert_new_parses(self, d, new_p, dq):
         for exp in self.new_parses:
@@ -632,7 +617,8 @@ class Parser:
                     exp.prediction1.update_ordering()
                     pred_queue.append(exp.prediction1) 
                 new_parse = Derivation(new_p, d.input, sorted(pred_queue), dnodes)
-            dq.insert(0, new_parse)
+            # sorting is much faster if new parse is close to its probable final position
+            dq.insert(0, new_parse) 
         dq.sort()
 
 #### Output trees ########

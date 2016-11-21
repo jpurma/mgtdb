@@ -1548,6 +1548,7 @@ if __name__ == '__main__':
     sentence = "which queen says the king knows which wine the queen prefers"
     sentence = "the king says the queen prefers wine"
     sentence = "which king says which queen knows which king says which wine the queen prefers"
+    #sentence = "which wine the queen prefers"
     results = go1(grammar.g, 'C', -0.0001, sentence=sentence)
     #for key in sorted(list(results.keys())):
     #    print(key)

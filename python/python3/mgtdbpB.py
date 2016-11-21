@@ -109,13 +109,13 @@ class Feature:
     #    return 'F(%s, %s)' % (self.ftype, self.value)
 
     def __repr__(self):
-        if ftype == 'cat':
+        if self.ftype == 'cat':
             return self.value
-        elif ftype == 'sel':
+        elif self.ftype == 'sel':
             return '=' + self.value
-        elif ftype == 'neg':
+        elif self.ftype == 'neg':
             return '-' + self.value
-        elif ftype == 'pos':
+        elif self.ftype == 'pos':
             return '+' + self.value
 
     def __eq__(self, other):
@@ -140,8 +140,6 @@ class LexTreeNode:
     def nonterminal_with_feature(self, value):
         for nonterminal in self.nonterminals:
             if nonterminal.feature and nonterminal.feature.value == value:
-                assert(nonterminal.feature.ftype == 'cat')
-                print('feature in nonterminals, type: ', nonterminal.feature.ftype)
                 return nonterminal
 
     def __repr__(self):
@@ -225,7 +223,10 @@ class Derivation:
         return (self.probability, self.input, self.prediction_queue, self.dnodes)[key]
 
     def __lt__(self, other):
-        return (self.probability, self.input, self.prediction_queue) < (self.probability, self.input, self.prediction_queue)
+        return (self.probability, self.input, self.prediction_queue) < (other.probability, other.input, other.prediction_queue)
+
+    def __repr__(self):
+        return repr([self.probability, self.input, self.prediction_queue, self.dnodes])
 
 class DerivationNode:
     """ DerivationNodes are constituent nodes that are represented in a queer way: 
@@ -382,7 +383,7 @@ class Parser:
         p = 1.0
         while derivation_queue:
             d = heapq_mod.heappop(derivation_queue) 
-            print('# of parses in beam=%s, p(best parse)=%s' % (len(derivation_queue) + 1, -1 * d.probability))  
+            print('# of parses in beam=%s, p(best parse)=%s' % (len(derivation_queue) + 1, -d.probability))  
             if not (d.prediction_queue or d.input):
                 return True, d.dnodes, derivation_queue # success 
             elif d.prediction_queue:
@@ -439,7 +440,7 @@ class Parser:
         :param prediction: the known result of hypothetical merge
         """
         print('doing merge1')
-        print(node)
+        #print(node)
         category = node.feature.value
         pr0 = prediction.copy() # no movers to lexical head
         pr0.head = node # one part of the puzzle is given, the other part is deduced from this 
@@ -467,7 +468,7 @@ class Parser:
         :param prediction: the known result of hypothetical merge
         """
         print('doing merge2')
-        print(node)
+        #print(node)
         cat = node.feature.value
         pr0 = prediction.copy() # movers to head
         pr0.head = node
@@ -499,7 +500,7 @@ class Parser:
             matching_tree = mover.nonterminal_with_feature(cat) # matching tree is a child of mover 
             if matching_tree:
                 print('doing merge3')
-                print(node)
+                #print(node)
                 # pr0 is prediction about {node}. It is a simple terminal that selects for 
                 pr0 = prediction.copy()
                 pr0.head = node
@@ -530,12 +531,12 @@ class Parser:
         :param node: hypothetical node that could lead to given {prediction}  
         :param prediction: the known result of hypothetical merge
         """
-        print('doing merge4')
-        print(node)
         cat = node.feature.value
         for nxt, m_nxt in prediction.movers.items():
             matching_tree = m_nxt.nonterminal_with_feature(cat)
             if matching_tree:
+                print('doing merge4')
+                #print(node)
                 # pr0 doesn't have certain movers that higher prediction has
                 pr0 = prediction.copy()
                 pr0.head = node
@@ -561,7 +562,7 @@ class Parser:
         if cat not in prediction.movers:  # SMC
             #print('doing move1')
             print('doing move1')
-            print(node)
+            #print(node)
             
             pr0 = prediction.copy() 
             pr0.head = node #node is remainder of head branch
@@ -613,7 +614,6 @@ class Parser:
         for exp in self.new_parses:
             dnodes = d.dnodes[:]
             # scan is a special case, identifiable by empty head
-            #print(exp.ics)
             if not exp.prediction.head:
                 label = exp.words
                 features = exp.prediction.dt.features
@@ -975,9 +975,8 @@ if __name__ == '__main__':
         "which king says which queen knows which king says which wine the queen prefers",
         "which queen says the king knows which wine the queen prefers",
         "which wine the queen prefers",
-        "which king says which queen knows which king says which wine the queen prefers"
     ]
-    #sentences = ["which wine the queen prefers"]
+    sentences = ["which wine the queen prefers"]
     t = time.time()
     for s in sentences:
         gr = Parser(grammar.g, 'C', -0.0001, sentence=s)

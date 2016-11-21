@@ -172,8 +172,10 @@ class Feature:
     def __str__(self):
         return ftype_map[self.ftype] + self.value
 
+    #def __repr__(self):
+    #    return 'F(%s, %s)' % (self.int_ftype, self.int_value)
     def __repr__(self):
-        return 'F(%s, %s)' % (self.int_ftype, self.int_value)
+        return ftype_map[self.ftype] + self.value
 
     def __eq__(self, other):
         return self.int_ftype == other.int_ftype and self.int_value == other.int_value
@@ -203,6 +205,13 @@ class LexTreeNode:
 
     def __repr__(self):
         return 'LN(key=%r, children=%r, roots=%r)' % (self.key, self.children, self.roots)
+
+    def __str__(self):
+        if self.children:
+            return '[%s, [%s]]' % (self.key, ', '.join([str(x) for x in self.children]))
+        else:
+            return '[%s, %s]' % (self.key, self.roots)
+
 
 class IC:
     def __init__(self, h, m, hx, mx, dt):
@@ -463,6 +472,7 @@ class Grammar:
         ic2.dt.dx.append(1) # extend new_dx
         exp = Exp(ics=[ic1, ic2])
         self.sofar.append(exp)
+        #print(self.sofar)
 
     # merge a (non-moving) specifier
     def merge2(self, node, i, ic):    # dt=(ifs,dx,mifs) EA
@@ -486,10 +496,10 @@ class Grammar:
 
     # merge a (moving) complement
     def merge3(self, node, i, ic):      
-        #print('doing merge3')
         for nxt, m_nxt in enumerate(ic.m):
             matching_tree = m_nxt and m_nxt.feature_in_children(i) #check to see if term is a mover plain and simple
             if matching_tree:
+                #print('doing merge3')
                 ic1 = ic.copy()
                 ic1.h = node
                 ic1.m = [[]] * len(ic.m)
@@ -512,10 +522,10 @@ class Grammar:
 
     # merge a (moving) specifier
     def merge4(self, node, i, ic):          
-        #print('doing merge4')
         for nxt, m_nxt in enumerate(ic.m):
             matching_tree = m_nxt and m_nxt.feature_in_children(i)
             if matching_tree:
+                #print('doing merge4')
                 ic1 = ic.copy()
                 ic1.h = node
                 ic1.m[nxt] = [] # we used the "next" licensee, so now empty
@@ -588,7 +598,6 @@ class Grammar:
             # scan is a special case, identifiable by empty head
             # (w,[(([],m),([],mx),(ifs,dx,mifs))]) <-- we check for that empty head
             #if exp[1][0][0][0]==[]:
-
             if not exp.ics[0].h:
                 dns = dns0[:]
                 #w = exp[0]
@@ -930,7 +939,6 @@ def build_dtree_from_dnodes(parent, nodes, terminals, dtree):
             label = leaf[0][0]
         else:
             label = ''
-        print(leaf)
         features = leaf[1]
         dtree.parts.append(DTree(label=label, features=features))
         return dtree
@@ -955,6 +963,7 @@ if __name__ == '__main__':
     import mg0 as grammar
     sentence = "the king prefers the beer"
     sentence = "which king says which queen knows which king says which wine the queen prefers"
+    sentence = "which wine the queen prefers"
     gr = Grammar(grammar.g, 'C', -0.0001, sentence=sentence)
     results = gr.results
     if False:
