@@ -25,48 +25,9 @@ import time
 from collections import OrderedDict
 from nltktreeport import (Tree)
 
-"""
-   We represent trees with lists, where the first element is the root,
-   and the rest is the list of the subtrees.
 
-   First, a pretty printer for these list trees:
-"""
-def pptreeN(out, n, t):  # pretty print t indented n spaces
-    if isinstance(t, list) and len(t) > 0:
-        out.write('\n' + ' ' * n + '[')
-        out.write(str(t[0])),  # print root and return
-        if len(t[1:]) > 0:
-            out.write(',')  # comma if more coming
-        for i, subtree in enumerate(t[1:]):  # then print subtrees indented by 4
-            pptreeN(out, n + 4, subtree)
-            if i < len(t[1:]) - 1:
-                out.write(',')  # comma if more coming
-        out.write(']')
-    else:
-        out.write('\n' + ' ' * n)
-        out.write(str(t))
-
-
-def pptree(out, t):
-    if len(t) == 0:  # catch special case of empty tree, lacking even a root
-        out.write('\n[]\n')
-    else:
-        pptreeN(out, 0, t)
-        out.write('\n')
-
-"""
-example: 
-pptree([1, 2, [3, 4], [5, 6]])
-pptree(['TP', ['DP', ['John']], ['VP', ['V',['praises']], ['DP', ['Mary']]]])
-
-I have intensionally written this prettyprinter so that the
-prettyprinted form is a well-formed term.
-"""
-
-"""
-   We can convert a list tree to an NLTK tree with the following:           #NLTK
-"""
 def list_tree_to_nltk_tree(listtree):
+    """ We can convert a list tree to an NLTK tree with the following: """
     if isinstance(listtree, tuple):  # special case for MG lexical items at leaves
         return ' '.join(listtree[0]) + ' :: ' + ' '.join(listtree[1])
     elif isinstance(listtree, str):  # special case for strings at leaves
@@ -133,9 +94,6 @@ class LexTreeNode:
                 return subtree
 
     def __repr__(self):
-        return 'LN(key=%r, children=%r, roots=%r)' % (self.feature, self.subtrees, self.terminals)
-
-    def __str__(self):
         if self.subtrees:
             return '[%s, [%s]]' % (self.feature, ', '.join([str(x) for x in self.subtrees]))
         else:
@@ -163,14 +121,31 @@ class Prediction:
                           self.tree.copy())
 
     def __repr__(self):
-        return 'Prediction(head=%r, movers=%r, head_path=%r, mover_paths=%r, tree=%r)' % (
-        self.head, self.movers, self.head_path, self.mover_paths, self.tree)
+        return 'Prediction(head=%r, movers=%r, head_path=%r, mover_paths=%r, tree=%r)' % \
+               (self.head, self.movers, self.head_path, self.mover_paths, self.tree)
 
     def __getitem__(self, key):
         return self._min_index
 
     def __lt__(self, other):
         return self._min_index < other._min_index
+
+    def compact(self):
+        h = str(self.head) + '; '
+        if self.movers:
+            m = 'm(%s); ' % str(self.movers)
+        else:
+            m = ''
+        if self.head_path:
+            hx = 'hx(%s); ' % self.head_path
+        else:
+            hx = ''
+        if self.mover_paths:
+            mx = 'mx(%s); ' % str(self.mover_paths)
+        else:
+            mx = ''
+        self.update_ordering()
+        return ''.join((self._min_index, h, m, hx, mx, self.tree.compact()))
 
 
 class Derivation:
@@ -196,7 +171,7 @@ class Derivation:
 
 
 class DerivationNode:
-    """ DerivationNodes are constituent nodes that are represented in a queer way: 
+    """ DerivationNodes are constituent nodes that are represented in a queer way:
         instead of having relations to other nodes, they have 'path', a list of 1:s and 0:s that
         tells their place in a binary tree. Once there is a list of DerivationNodes, a common
         tree can be composed from it. """
@@ -225,6 +200,21 @@ class DerivationNode:
     def __lt__(self, other):
         return self.path < other.path
 
+    def compact(self):
+        if self.label:
+            l = 'l(%s);' % ''.join(self.label)
+        else:
+            l = ''
+        if self.features:
+            f = 'f(%s);' % ''.join([str(x) for x in self.features])
+        else:
+            f = ''
+        if self.moving_features:
+            m = 'mf(%s);' % str(self.moving_features)
+        else:
+            m = ''
+        return 'dn('+ ''.join((self.path, '; ', l, f, m)) + ')'
+
 
 class Parser:
     def __init__(self, lex_tuples, min_p, start=None, sentence=None):
@@ -235,7 +225,7 @@ class Parser:
         self.derivation_stack = []
         self.new_parses = []
         self.results = {}
-        # Read LIs and features from grammar. 
+        # Read LIs and features from grammar.
         feature_values = set()
         base = LexTreeNode(None)
         for words, feature_tuples in lex_tuples:
@@ -274,8 +264,8 @@ class Parser:
         return str(self.d)
 
     def parse(self, start, sentence):
-        # Prepare prediction queue. We have a prediction that the derivation will finish 
-        # in a certain kind of category, e.g. 'C'  
+        # Prepare prediction queue. We have a prediction that the derivation will finish
+        # in a certain kind of category, e.g. 'C'
         final_features = [Feature('cat', start)]
         topmost_head = self.lex[start]
         prediction = Prediction(topmost_head, tree=DerivationNode('', features=final_features))
@@ -283,7 +273,7 @@ class Parser:
         inpt = sentence.split()
         print('inpt =' + str(inpt))
 
-        # Prepare derivation queue. It gets expanded by derive.  
+        # Prepare derivation queue. It gets expanded by derive.
         self.derivation_stack = [Derivation(-1.0, inpt, [prediction], [DerivationNode('')])]
 
         # The work is done by derive.
@@ -301,8 +291,11 @@ class Parser:
         d = None
         while self.derivation_stack:
             d = self.derivation_stack.pop()
+            self.checkpoint(d.results)
+            print('#########################################')
             print('# of parses in beam=%s, p(best parse)=%s' %
                   (len(self.derivation_stack) + 1, -1 * d.probability))
+            print('')
             if not (d.predictions or d.input):
                 return True, d.results  # success
             elif d.predictions:
@@ -329,6 +322,7 @@ class Parser:
          """
 
         # e.g. if current head is C, nodes are =V, -wh
+        print('---prediction now: ', prediction.compact())
         for node in prediction.head.subtrees:
             if node.feature.ftype == 'sel':
                 if node.terminals:
@@ -357,81 +351,80 @@ class Parser:
                 new_parse.results.append(new_pred.tree)
                 if new_parse.input[:len(words)] == words:
                     new_parse.input = new_parse.input[len(words):]
+                print('||| scanned and found: ', words)
                 self.derivation_stack.append(new_parse)
                 self.derivation_stack.sort(reverse=True)
                 break  # there is only one match for word+features in lexicon
 
-    # These operations reverse familiar minimalist operations: external merges, moves and select. 
+    # These operations reverse familiar minimalist operations: external merges, moves and select.
     # They create predictions of possible child nodes that could have resulted in current head.
-    # Predictions are packed into Expansions, and after all Expansions for this head are created, 
-    # the good ones are inserted to parse queue by insert_new_parses.  
+    # Predictions are packed into Expansions, and after all Expansions for this head are created,
+    # the good ones are inserted to parse queue by insert_new_parses.
     # merge a (non-moving) complement
     def merge1(self, node, prediction):
         """ This reverses a situation when a new element (pr0) is external-merged to existing
         head (pr1) as a complement.
-        given node is child of current prediction and it is the last feature before the terminals.
-        Predictions are copies of the given parent prediction and modify it slightly, so that the
-        parent prediction is what would result if the two predictions are merged.
-        :param node: hypothetical node that could lead to given {prediction}  
-        :param prediction: the known result of hypothetical merge
+        {node} is one of the subtrees of {prediction.head}.
+        {node} is terminal
+        ..=X:root * X.. -> prediction
         """
         # print('doing merge1')
         # print(node)
         category = node.feature.value
         pr0 = prediction.copy()  # no movers to lexical head
         pr0.head = node  # one part of the puzzle is given, the other part is deduced from this
-        pr0.head_path += '0'
-        pr0.movers = {}
+        pr0.head_path += '0'  # left
+        pr0.movers = {}  # this is external merge, doesn't bring any movers
         pr0.mover_paths = {}
-        pr0.tree.features.append(Feature('sel', category))
-        pr0.tree.path += '0'
+        pr0.tree.features.append(Feature('sel', category)) # =D, =N,...
+        pr0.tree.path += '0'  # left
         pr0.tree.moving_features = {}
 
         pr1 = prediction.copy()  # movers to complement only
         pr1.head = self.lex[category]  # head can be any LI in this category
-        pr1.head_path += '1'
-        pr1.tree.features = [Feature('cat', category)]
-        pr1.tree.path += '1'
+        pr1.head_path += '1'  # right
+        pr1.tree.features = [Feature('cat', category)] # D, N,...
+        pr1.tree.path += '1'  # right
+        print('merge1, pr0:', pr0.compact())
+        print('merge1, pr1:', pr1.compact())
         self.new_parses.append((pr0, pr1))
 
     # merge a (non-moving) specifier
     def merge2(self, node, prediction):
         """ This reverses a situation when a non-terminal element (pr0) is external-merged to
         existing head (pr1) as a specifier.
-        node is non-terminal
-        Predictions are copies of the given parent prediction and modify it slightly, so that the
-        parent prediction is what would result if the two predictions are merged.
-        :param node: hypothetical node that could lead to given {prediction}  
-        :param prediction: the known result of hypothetical merge
+        {node} is one of the subtrees of {prediction.head}.
+        {node} is non-terminal
+        ..=X.. * X.. -> prediction
         """
         # print('doing merge2')
         # print(node)
-        cat = node.feature.value
-        pr0 = prediction.copy()  # movers to head
+        category = node.feature.value
+        pr0 = prediction.copy()  # pr0 receives movers from prediction.
         pr0.head = node
-        pr0.head_path += '1'
-        pr0.tree.features.append(Feature('sel', cat))
-        pr0.tree.path += '0'
+        pr0.head_path += '1'  # right?
+        pr0.tree.features.append(Feature('sel', category))  # =D, =N,...
+        pr0.tree.path += '0'  # left?
 
         pr1 = prediction.copy()
-        pr1.head = self.lex[cat]
-        pr1.movers = {}
-        pr1.head_path += '0'
+        pr1.head = self.lex[category]
+        pr1.movers = {}  # pr1 is non-mover and a specifier
+        pr1.head_path += '0'  # left, as in specifier? Why head_path and tree path are different?
         pr1.mover_paths = {}
-        pr1.tree.features = [Feature('cat', cat)]
+        pr1.tree.features = [Feature('cat', category)]  # D, N,...
         pr1.tree.path += '1'
         pr1.tree.moving_features = {}
+        print('merge2, pr0:', pr0.compact())
+        print('merge2, pr1:', pr1.compact())
         self.new_parses.append((pr0, pr1))
 
     # merge a (moving) complement
     def merge3(self, node, prediction):
         """ This reverses a situation when a terminal moving element (pr0) is merged to existing
         head (pr1) as a complement.
-        what we know about {node} is that it is terminal
-        Predictions are copies of the given parent prediction and modify it slightly, so that the
-        parent prediction is what would result if the two predictions are merged.
-        :param node: hypothetical node that could lead to given {prediction}  
-        :param prediction: the known result of hypothetical merge
+        {node} is one of the subtrees of {prediction.head}.
+        {node} is terminal
+        ..=X:root * ..X(-mover).. => prediction (with mover)
         """
         cat = node.feature.value
         for mover_cat, mover in prediction.movers.items():  # look into movers
@@ -439,12 +432,11 @@ class Parser:
             if matching_tree:
                 # print('doing merge3')
                 # print(node)
-                # pr0 is prediction about {node}. It is a simple terminal that selects for 
-                pr0 = prediction.copy()
-                pr0.head = node
+                pr0 = prediction.copy()  # pr0 doesn't move anymore
+                pr0.head = node  # head path is not changing. wonder why?
                 pr0.movers = {}
                 pr0.mover_paths = {}
-                pr0.tree.features.append(Feature('sel', cat))
+                pr0.tree.features.append(Feature('sel', cat)) # =D, =N
                 pr0.tree.path += '0'
                 pr0.tree.moving_features = {}
 
@@ -458,61 +450,67 @@ class Parser:
                 pr1.tree.features.append(Feature('cat', cat))
                 pr1.tree.path += '1'
                 del pr1.tree.moving_features[mover_cat]
+                print('merge3, pr0:', pr0.compact())
+                print('merge3, pr1:', pr1.compact())
                 self.new_parses.append((pr0, pr1))
 
     # merge a (moving) specifier
     def merge4(self, node, prediction):
         """ This reverses a situation when a non-terminal element (pr0) is merged to existing
         head (pr1) as a specifier.
-        node is non-terminal
-        Predictions are copies of the given parent prediction and modify it slightly, so that the
-        parent prediction is what would result if the two predictions are merged.
-        :param node: hypothetical node that could lead to given {prediction}  
-        :param prediction: the known result of hypothetical merge
+        {node} is one of the subtrees of {prediction.head}.
+        {node} is non-terminal
+        ..=X(-mover).. * ..LexMX(mover).. => prediction (with mover)
         """
         cat = node.feature.value
-        for nxt, m_nxt in prediction.movers.items():
-            matching_tree = m_nxt.subtree_with_feature(cat)
+        for mover_cat, mover in prediction.movers.items():
+            matching_tree = mover.subtree_with_feature(cat)
             if matching_tree:
                 # print('doing merge4')
                 # print(node)
-                # pr0 doesn't have certain movers that higher prediction has
-                pr0 = prediction.copy()
+                pr0 = prediction.copy()  # has most of the movers that prediction has
                 pr0.head = node
-                del pr0.movers[nxt]  # we used the "next" licensee, so now empty
-                del pr0.mover_paths[nxt]
+                del pr0.movers[mover_cat]  # we used the "next" licensee, so now empty
+                del pr0.mover_paths[mover_cat]
                 pr0.tree.features.append(Feature('sel', cat))
                 pr0.tree.path += '0'
-                del pr0.tree.moving_features[nxt]
+                del pr0.tree.moving_features[mover_cat]
 
                 pr1 = prediction.copy()  # movers passed to complement
                 pr1.head = matching_tree
                 pr1.movers = {}
-                pr1.head_path = pr1.mover_paths[nxt]
+                pr1.head_path = pr1.mover_paths[mover_cat]
                 pr1.mover_paths = {}
-                pr1.tree.features = pr1.tree.moving_features[nxt][:]  # copy
+                pr1.tree.features = pr1.tree.moving_features[mover_cat][:]  # copy
                 pr1.tree.features.append(Feature('cat', cat))
                 pr1.tree.path += '1'
                 pr1.tree.moving_features = {}
+                print('merge4, pr0:', pr0.compact())
+                print('merge4, pr1:', pr1.compact())
                 self.new_parses.append((pr0, pr1))
 
     def move1(self, node, prediction):
+        """ Making a hypothesis that the previous build step was move.
+        {node} is one of the subtrees of {prediction.head}.
+        {prediction.movers}
+
+        """
         cat = node.feature.value
-        if cat not in prediction.movers:  # SMC
-            # print('doing move1')
-            # print(node)
+        if cat not in prediction.movers:  # note that it is 'not in'. We're establishing a mover.
             pr0 = prediction.copy()
             pr0.head = node  # node is remainder of head branch
             pr0.movers[cat] = self.lex[cat]
             pr0.head_path += '1'
-            pr0.mover_paths[cat] = prediction.head_path[:]
+            pr0.mover_paths[cat] = prediction.head_path
             pr0.mover_paths[cat] += '0'
-            pr0.tree.features.append(Feature('pos', cat))
+            pr0.tree.features.append(Feature('pos', cat))  # trunk has '+'
             pr0.tree.path += '0'
-            pr0.tree.moving_features[cat] = [Feature('neg', cat)]  # begin new mover with (neg cat)
+            pr0.tree.moving_features[cat] = [Feature('neg', cat)]  # mover has '-'
+            print('move1, pr0:', pr0.compact())
             self.new_parses.append((pr0, None))
 
     def move2(self, node, prediction):
+        """ Move and keep on moving? Examples don't seem to use this. """
         cat = node.feature.value
         for mover_cat, mover in prediction.movers.items():  # <-- look into movers
             matching_tree = mover.subtree_with_feature(
@@ -521,7 +519,7 @@ class Parser:
                 root_f = matching_tree.feature.value  # value of rootLabel
                 assert (root_f == cat)
                 print(root_f, mover_cat)
-                if root_f == mover_cat or not prediction.movers.get(root_f, []):  # SMC
+                if root_f == mover_cat or root_f not in prediction.movers:  # SMC
                     print('doing move2')
                     print(node)
                     # print('doing move2')
@@ -538,6 +536,7 @@ class Parser:
                     del pr0.tree.moving_features[mover_cat]
                     pr0.tree.features.append(Feature('pos', cat))
                     pr0.tree.path += '0'
+                    print('move2, pr0:', pr0.compact())
                     self.new_parses.append((pr0, None))
 
     def insert_new_parses(self, derivation, new_p):
@@ -555,6 +554,11 @@ class Parser:
             self.derivation_stack.append(new_parse)
         self.derivation_stack.sort(reverse=True)
 
+    def checkpoint(self, dnodes):
+        dtree = DTree.dnodes_to_dtree(dnodes)
+        print('******* dtree *******')
+        print(dtree)
+
 
 # Output trees ########
 
@@ -565,10 +569,9 @@ class DTree:
         self.label = label or []
         self.features = features or []
         self.parts = parts or []
-        # self.coords = ''
 
     def __repr__(self):
-        return '[%r, %r]' % (self.label, self.features or self.parts)
+        return '[%r:%r, %r]' % (self.label, self.features, self.parts)
 
     def build_from_dnodes(self, parent_path, dnodes, terminals):
         if terminals and terminals[0].path == parent_path:
@@ -576,24 +579,23 @@ class DTree:
             self.label = ' '.join(leaf.label)
             self.features = leaf.features
             self.features.reverse()
-            # if dnodes:
-            #     if leaf.path and leaf.path[-1] == '1':
-            #         self.coords = str(len(parent_path)) + 'b' 
+            # s = ''
+            # for char in leaf.path:
+            #     if char == '0':
+            #         s += 'L'
             #     else:
-            #         self.coords = str(len(parent_path)) + 'a' 
-            #     print('-', self.coords, leaf.path)            
-
-        elif dnodes and parent_path == dnodes[0].path[0:len(parent_path)]:
+            #         s += 'R'
+            # s += ':' + self.label
+            # print(s)
+        elif dnodes and dnodes[0].path.startswith(parent_path):
             root = dnodes.pop(0)
-            # if root.path and root.path[-1] == '1':
-            #     self.coords = str(len(parent_path)) + 'b' 
-            # else:
-            #     self.coords = str(len(parent_path)) + 'a' 
-            # print('*', self.coords, root.path)            
+            self.features = root.features
+            self.features.reverse()
+
             child0 = DTree()
             child0.build_from_dnodes(root.path, dnodes, terminals)
             self.parts.append(child0)
-            if dnodes and parent_path == dnodes[0].path[0:len(parent_path)]:
+            if dnodes and dnodes[0].path.startswith(parent_path):
                 self.label = '*'
                 root1 = dnodes.pop(0)
                 child1 = DTree()
@@ -601,8 +603,14 @@ class DTree:
                 self.parts.append(child1)
             else:
                 self.label = 'o'
-        else:
-            raise RuntimeError('build_from_dnodes: error')
+                # s = ''
+                # for char in parent_path:
+                #     if char == '0':
+                #         s += 'L'
+                #     else:
+                #         s += 'R'
+                # s += ':' + self.label
+                # print(s)
 
     def as_list_tree(self):
         if len(self.parts) == 2:
@@ -625,19 +633,16 @@ class DTree:
                 terms.append(dn)
             else:
                 nonterms.append(dn)
-        if len(nonterms) == 0:
-            raise RuntimeError('buildIDtreeFromDnodes: error')
-        else:
-            terms.sort()
-            nonterms.sort()
-            root = nonterms.pop(0)
-            dtree = DTree()
-            dtree.build_from_dnodes(root.path, nonterms, terms)
-            if terms or nonterms:
-                print('dnodes_to_dtree error: unused derivation steps')
-                print('terms=' + str(terms))
-                print('nonterms=' + str(nonterms))
-            return dtree
+        terms.sort()
+        nonterms.sort()
+        root = nonterms.pop(0)
+        dtree = DTree()
+        dtree.build_from_dnodes(root.path, nonterms, terms)
+        if terms or nonterms:
+            print('dnodes_to_dtree error: unused derivation steps')
+            print('terms=' + str(terms))
+            print('nonterms=' + str(nonterms))
+        return dtree
 
 
 class StateTree:
@@ -902,6 +907,7 @@ class XBarTree:
 
 ############################################################################################
 
+
 def print_results(dnodes, lexicon=None):
         dt = DTree.dnodes_to_dtree(dnodes)
         res = {}
@@ -947,9 +953,30 @@ def print_results(dnodes, lexicon=None):
             output.close()
         return res
 
-def show(out):
-    for item in self.d:
-        out.write(str(item))
+
+def _pptree(out, n, t):  # pretty print t indented n spaces
+    if isinstance(t, list) and len(t) > 0:
+        out.write('\n' + ' ' * n + '[')
+        out.write(str(t[0])),  # print root and return
+        if len(t[1:]) > 0:
+            out.write(',')  # comma if more coming
+        for i, subtree in enumerate(t[1:]):  # then print subtrees indented by 4
+            _pptree(out, n + 4, subtree)
+            if i < len(t[1:]) - 1:
+                out.write(',')  # comma if more coming
+        out.write(']')
+    else:
+        out.write('\n' + ' ' * n)
+        out.write(str(t))
+
+
+def pptree(out, t):
+    if len(t) == 0:  # catch special case of empty tree, lacking even a root
+        out.write('\n[]\n')
+    else:
+        _pptree(out, 0, t)
+        out.write('\n')
+
 
 def lex_array_as_list(lexicon):
     def as_list(node):
@@ -971,13 +998,13 @@ if __name__ == '__main__':
                  "which wine the queen prefers",
                  "which king says which queen knows which king says which wine the queen prefers"]
     sentences = ["which king says which queen knows which king says which wine the queen prefers"]
-    # sentences = ["which wine the queen prefers"]
+    sentences = ["which wine the queen prefers"]
     t = time.time()
     for s in sentences:
         pr = Parser(grammar.g, -0.0001)
-        success, dnodes = pr.parse(sentence=s, start='C')
-        results = print_results(dnodes, pr.lex)
-        if True:
+        my_success, my_dnodes = pr.parse(sentence=s, start='C')
+        results = print_results(my_dnodes, pr.lex)
+        if False:
             for key in sorted(list(results.keys())):
                 print(key)
                 print(results[key])
